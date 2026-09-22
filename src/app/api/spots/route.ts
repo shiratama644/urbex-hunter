@@ -40,9 +40,6 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("[/api/spots]", error);
-    return NextResponse.json(
-      { error: "スポットの取得に失敗しました" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "スポットの取得に失敗しました" }, { status: 500 });
   }
 }

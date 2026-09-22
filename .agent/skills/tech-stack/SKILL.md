@@ -15,14 +15,14 @@ description: Next.js / Tailwind v4 / Leaflet / Drizzle の使いどころ・ハ�
 
 | 層 | 使うもの | 使わない / 禁止 |
 | :--- | :--- | :--- |
-| ランタイム | Node 22 + npm（`npm ci` / `npm run` / `npx`） | bun / yarn / pnpm への置換。`bun.lock` を持ち込まない |
+| ランタイム | Node 22 + pnpm 12.5.1（`pnpm install --frozen-lockfile` / `pnpm run` / `pnpm exec` / `pnpm dlx`） | bun / npm / yarn への置換。`package-lock.json` / `bun.lock` を持ち込まない |
 | フレームワーク | Next.js 16 App Router + React 19 + TypeScript strict | Pages Router への回帰。`src/` 外へのコード分散 |
 | スタイル | Tailwind v4 + `@theme`（`src/app/globals.css`） + `@tailwindcss/postcss` | `tailwind.config.ts` 新設。M3 トークンの勝手リネーム |
 | 地図 | Leaflet 1.9 + react-leaflet 5 + leaflet.markercluster（CartoDB） | 地図を SSR する。`MapClient` 以外で Leaflet を直接 import して SSR 破壊 |
 | アニメーション | framer-motion（M3 easing） | 地図 pan/zoom を妨げる長時間 motion |
 | DB | PostgreSQL + Drizzle ORM 0.45 + `pg` + `drizzle-kit` | Prisma / TypeORM への置換。`spots` 以外への無計画な table 追加（ADR が必要） |
 | スクレイパー | cheerio + `tsx`（`scripts/*.ts`） | スクリプト外からの ghostmap.jp fetch。UA 無しの大量リクエスト |
-| Lint | ESLint 9 flat config (`eslint-config-next/core-web-vitals`) | Biome / Prettier の混在。`files.includes` 的除外 |
+| Lint | Biome 2.5.x（`biome.json` / `domains: next,react,project` / `css.parser.tailwindDirectives: true`） | ESLint / Prettier の混在。`eslint.config.mjs` の再導入 |
 
 レートは **UI=可変 rAF相当（地図操作） / API=ISR 86400 + s-maxage 86400**。スクレイパーは週次（cron）のみ全量。
 
@@ -30,14 +30,14 @@ description: Next.js / Tailwind v4 / Leaflet / Drizzle の使いどころ・ハ�
 
 | 用途 | 技術 | コマンド |
 | :--- | :--- | :--- |
-| Dev | Next.js | `npm run dev` → `http://localhost:3000` |
-| Build | Next.js | `npm run build`（`.next/`） |
-| Typecheck | TypeScript | `npm run typecheck` (`tsc --noEmit`) |
-| Lint | ESLint | `npm run lint` (`eslint .`) |
-| DB migrate | drizzle-kit | `npx drizzle-kit push`（`drizzle.config.json` 参照） |
-| Seed | tsx | `npx tsx scripts/seed.ts` |
-| Scrape | tsx + cheerio | `npx tsx scripts/scrape.ts`（`PREFS` / `LIMIT_PER_PREF` / `CONCURRENCY`） |
-| パッケージ | npm | `npm ci`（lock が無い期間は `npm install`） |
+| Dev | Next.js | `pnpm run dev` → `http://localhost:3000` |
+| Build | Next.js | `pnpm run build`（`.next/`） |
+| Typecheck | TypeScript | `pnpm run typecheck` (`tsc --noEmit`) |
+| Lint | Biome | `pnpm run check` (`biome check .`) / `pnpm run ci`（CI 用） |
+| DB migrate | drizzle-kit | `pnpm exec drizzle-kit push`（`drizzle.config.json` 参照） |
+| Seed | tsx | `pnpm exec tsx scripts/seed.ts` |
+| Scrape | tsx + cheerio | `pnpm exec tsx scripts/scrape.ts`（`PREFS` / `LIMIT_PER_PREF` / `CONCURRENCY`） |
+| パッケージ | pnpm | `pnpm install --frozen-lockfile`（旧 npm lock は追跡しない） |
 
 ## ハマりどころ（本リポジトリで確認済み）
 
@@ -84,9 +84,10 @@ description: Next.js / Tailwind v4 / Leaflet / Drizzle の使いどころ・ハ�
   - `CONCURRENCY=6` — 同時接続。6 を超える場合は `docs/arch/scraping.md` のポライトネス節を更新して ADR する。
 - `scrape_update.yml` の `timeout-minutes: 45` / `contents: write` / `git push` を壊さない。差分が無い時は commit しない分岐を維持する。
 
-### ESLint
-- `eslint.config.mjs` は `defineConfig([...nextCoreWebVitals, globalIgnores([...])])`。`globalIgnores` の対象が `files` ではなく `ignores` であることに注意。
-- `next-env.d.ts` は生成物。lint 除外に入れる。
+### Biome
+- `biome.json` は `$schema: 2.5.14` / `files.includes: ["**", "!.next", ...]` / `linter.domains: { next, react, project }` / `css.parser.tailwindDirectives: true`。`next-env.d.ts` / `.next/**` は overrides で無効化。
+- `pnpm run check` が `biome check .`、`pnpm run ci` が `biome ci .`（CI 用）。Next 16 で `next lint` 廃止のため `eslint` 系は使わない。
+- `src/app/globals.css` の `!important` / `noDescendingSpecificity` は Leaflet 上書きのため overrides で除外。`SpotDetailSheet` の `<img>` は Next Image への移行まで `noImgElement` を除外。
 
 ## API を記憶で書かない
 

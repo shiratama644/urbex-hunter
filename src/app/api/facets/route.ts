@@ -13,9 +13,6 @@ export async function GET() {
     });
   } catch (error) {
     console.error("[/api/facets]", error);
-    return NextResponse.json(
-      { error: "集計の取得に失敗しました" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "集計の取得に失敗しました" }, { status: 500 });
   }
 }

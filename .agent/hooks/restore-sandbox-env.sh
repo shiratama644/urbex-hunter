@@ -4,7 +4,7 @@
 #
 # やること:
 #   1. Node.js バージョンの確認（.nvmrc があれば警告）
-#   2. npm で依存を再構築（.nvmrc や package-lock を優先）
+#   2. pnpm で依存を再構築（pnpm-lock.yaml を優先）
 #   3. 任意: Prisma/Drizzle の生成があれば実行（本プロジェクトでは不要だが将来の拡張に備えフックだけ残す）
 set -euo pipefail
 
@@ -26,26 +26,32 @@ else
   echo "[restore-sandbox-env] no .nvmrc; using current node: $(node --version)"
 fi
 
-echo "[restore-sandbox-env] npm: $(npm --version)"
+echo "[restore-sandbox-env] pnpm: $(pnpm --version 2>/dev/null || echo "not found (will try corepack)")"
 echo "[restore-sandbox-env] node: $(node --version)"
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "[restore-sandbox-env] enabling corepack for pnpm..."
+  corepack enable || true
+  corepack prepare pnpm@12.5.1 --activate || true
+fi
 
 # ============================================================================
 # 2. 依存インストール
 # ============================================================================
 if [ -f package.json ]; then
-  if [ -f package-lock.json ]; then
-    echo "[restore-sandbox-env] installing dependencies (npm ci) ..."
-    npm ci
+  if [ -f pnpm-lock.yaml ]; then
+    echo "[restore-sandbox-env] installing dependencies (pnpm install --frozen-lockfile) ..."
+    pnpm install --frozen-lockfile
+  elif [ -f package-lock.json ]; then
+    echo "[restore-sandbox-env] WARN: package-lock.json found but this project uses pnpm. Migrating..."
+    pnpm import || pnpm install
   elif [ -f bun.lockb ] || [ -f bun.lock ]; then
-    # 旧 cod-web 由来の bun.lock が残っていた場合の互換。
-    # 本プロジェクトは npm なので警告して npm install にフォールバックする。
-    echo "[restore-sandbox-env] WARN: bun lock file found but this project uses npm. Falling back to npm install."
-    npm install
+    echo "[restore-sandbox-env] WARN: bun lock file found but this project uses pnpm. Falling back to pnpm install."
+    pnpm install
   else
-    echo "[restore-sandbox-env] installing dependencies (npm install) ..."
-    npm install
+    echo "[restore-sandbox-env] installing dependencies (pnpm install) ..."
+    pnpm install
   fi
-  echo "[restore-sandbox-env] done. verify with: npm run typecheck && npm run build"
+  echo "[restore-sandbox-env] done. verify with: pnpm run typecheck && pnpm run build"
 else
   echo "[restore-sandbox-env] no package.json yet. skipping dependency install."
 fi

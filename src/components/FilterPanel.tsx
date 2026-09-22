@@ -55,9 +55,7 @@ export default function FilterPanel({
               <div className="h-1 w-10 rounded-full bg-m3-outline-variant" />
             </div>
             <header className="flex items-center justify-between px-5 pt-3 pb-1">
-              <h2 className="text-title-lg font-semibold text-m3-on-surface">
-                絞り込み
-              </h2>
+              <h2 className="text-title-lg font-semibold text-m3-on-surface">絞り込み</h2>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
@@ -80,9 +78,7 @@ export default function FilterPanel({
 
             <div className="thin-scrollbar max-h-[62dvh] overflow-y-auto px-5 pb-28 md:max-h-[calc(100dvh-140px)]">
               <section className="mt-3">
-                <h3 className="text-title-sm font-semibold text-m3-on-surface">
-                  怖さ評価（最低）
-                </h3>
+                <h3 className="text-title-sm font-semibold text-m3-on-surface">怖さ評価（最低）</h3>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {RATINGS.map((r) => (
                     <button
@@ -102,9 +98,7 @@ export default function FilterPanel({
               </section>
 
               <section className="mt-5">
-                <h3 className="text-title-sm font-semibold text-m3-on-surface">
-                  ジャンル
-                </h3>
+                <h3 className="text-title-sm font-semibold text-m3-on-surface">ジャンル</h3>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {facets.genres.map((g) => {
                     const active = genres.includes(g.value);
@@ -129,9 +123,7 @@ export default function FilterPanel({
               </section>
 
               <section className="mt-5">
-                <h3 className="text-title-sm font-semibold text-m3-on-surface">
-                  都道府県
-                </h3>
+                <h3 className="text-title-sm font-semibold text-m3-on-surface">都道府県</h3>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {facets.prefectures.map((p) => {
                     const active = prefs.includes(p.value);

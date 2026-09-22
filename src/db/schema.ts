@@ -36,15 +36,13 @@ export const spots = pgTable(
     comment: text("comment"),
     imageUrl: text("image_url"),
     sourceUrl: text("source_url").notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("spots_pref_idx").on(t.prefecture),
     index("spots_genre_idx").on(t.genre),
     index("spots_bbox_idx").on(t.lat, t.lng),
-  ],
+  ]
 );
 
 export type SpotRow = typeof spots.$inferSelect;

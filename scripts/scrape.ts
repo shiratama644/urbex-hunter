@@ -10,13 +10,13 @@
  *
  * 注意: 相手サーバーに負荷を掛けないよう、同時接続数と待機時間を制御しています。
  */
-import * as cheerio from "cheerio";
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import * as cheerio from "cheerio";
 
 const BASE = "https://ghostmap.jp";
-const UA =
-  "Mozilla/5.0 (compatible; GhostMapStudyBot/1.0; +https://example.com/bot)";
+const UA = "Mozilla/5.0 (compatible; GhostMapStudyBot/1.0; +https://example.com/bot)";
 
 const PREFECTURES: { code: number; name: string }[] = [
   { code: 1, name: "北海道" },
@@ -104,7 +104,10 @@ const num = (raw?: string | null): number | null => {
 
 const clean = (raw?: string | null): string | null => {
   if (!raw) return null;
-  const t = raw.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim();
+  const t = raw
+    .replace(/\u3000/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   return t.length ? t : null;
 };
 
@@ -188,13 +191,8 @@ export function parseSpot(html: string, spotcd: number): SpotFeature | null {
     .filter(Boolean);
   const prefecture =
     PREFECTURES.map((p) => p.name).find((p) => crumbs.includes(p)) ??
-    (address
-      ? (address.match(
-          /(東京都|北海道|(?:京都|大阪)府|..県)/,
-        )?.[1] ?? null)
-      : null);
-  const city =
-    crumbs.find((c) => /[市区町村郡]$/.test(c) && c !== prefecture) ?? null;
+    (address ? (address.match(/(東京都|北海道|(?:京都|大阪)府|..県)/)?.[1] ?? null) : null);
+  const city = crumbs.find((c) => /[市区町村郡]$/.test(c) && c !== prefecture) ?? null;
 
   // タグ群（特徴・心霊現象）
   const tagGroups: Record<string, string[]> = {};
@@ -226,9 +224,7 @@ export function parseSpot(html: string, spotcd: number): SpotFeature | null {
     null;
 
   const image = $("#outline_image img").attr("src");
-  const imageUrl = image
-    ? new URL(image.replace(/^\.\.\//, "/"), BASE).toString()
-    : null;
+  const imageUrl = image ? new URL(image.replace(/^\.\.\//, "/"), BASE).toString() : null;
 
   const properties: SpotProps = {
     spotcd,
@@ -270,11 +266,7 @@ export async function scrapeSpot(spotcd: number): Promise<SpotFeature | null> {
   }
 }
 
-async function pool<T, R>(
-  items: T[],
-  size: number,
-  worker: (item: T) => Promise<R>,
-): Promise<R[]> {
+async function pool<T, R>(items: T[], size: number, worker: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = [];
   let cursor = 0;
   const runners = Array.from({ length: Math.min(size, items.length) }, async () => {
@@ -291,9 +283,7 @@ async function main() {
   const limitPerPref = Number(process.env.LIMIT_PER_PREF ?? 16);
   const concurrency = Number(process.env.CONCURRENCY ?? 8);
   const only = process.env.PREFS?.split(",").map(Number).filter(Boolean);
-  const targets = only
-    ? PREFECTURES.filter((p) => only.includes(p.code))
-    : PREFECTURES;
+  const targets = only ? PREFECTURES.filter((p) => only.includes(p.code)) : PREFECTURES;
 
   const outPath = path.join(process.cwd(), "data", "spots.geojson");
   const existing = new Map<number, SpotFeature>();
@@ -322,7 +312,7 @@ async function main() {
   }
 
   const features = [...existing.values()].sort(
-    (a, b) => (b.properties.totalScore ?? 0) - (a.properties.totalScore ?? 0),
+    (a, b) => (b.properties.totalScore ?? 0) - (a.properties.totalScore ?? 0)
   );
 
   await mkdir(path.dirname(outPath), { recursive: true });
@@ -336,9 +326,9 @@ async function main() {
         features,
       },
       null,
-      1,
+      1
     ),
-    "utf8",
+    "utf8"
   );
   console.log(`✅ ${features.length} 件を ${outPath} に書き出しました`);
 }

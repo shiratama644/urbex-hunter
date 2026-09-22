@@ -57,17 +57,17 @@
 
 ### 3.1 検証コマンドの実行
 - `package.json` に定義されたスクリプトのみを使用する（存在しないコマンドを捏造・実行しない）。
-- **パッケージ管理は npm**（`npm ci` / `npm run` / `npx`）。本テンプレートのロック期待は `npm`（`bun.lock` は使わない）。
+- **パッケージ管理は pnpm**（`pnpm install --frozen-lockfile` / `pnpm run` / `pnpm exec`）。本テンプレートのロック期待は `pnpm`（`pnpm-lock.yaml` / `pnpm-workspace.yaml`）。旧 `package-lock.json` は追跡しない。
 - 原則として commit 前に以下を全て pass させる：
   ```bash
-  npm run typecheck            # tsc --noEmit
-  npm run lint                 # eslint . （flat config / next/core-web-vitals）
-  npm run build                # next build
+  pnpm run typecheck           # tsc --noEmit
+  pnpm run check               # biome check .（Biome 2.x / domains: next,react,project）
+  pnpm run build               # next build
   ```
-  - テストが追加された場合は `npm run test` / `npm run test:coverage` も対象に含める。
+  - テストが追加された場合は `pnpm run test` / `pnpm run test:coverage` も対象に含める。
   - 現状 `package.json` に `test` が無い場合は捏造しない。追加する際は Vitest + @testing-library/react を候補にし、配置は `src/` に寄せるか `_tests_/` にミラーする方針を `docs/arch/testing.md` に記録してから導入する。
 - **E2E（Playwright）は Sandbox で実行不可**（§6.2 参照）。`package.json` に `test:e2e` が無い限り捏造しない。CI 上のみ実行。
-- ビルドサイズは `npm run build` 後に `.next/` / `out/` を確認する。Leaflet / framer-motion を含むため chunk 重複に注意。
+- ビルドサイズは `pnpm run build` 後に `.next/` / `out/` を確認する。Leaflet / framer-motion を含むため chunk 重複に注意。
 - ドキュメントのみの変更（コード無変更）では上記はスキップ可。代わりに「リンク切れ・他ファイルとの参照整合・旧名称の残存がないこと」を grep 等で確認する。
 
 ### 3.2 エラー対応と品質維持
@@ -114,7 +114,7 @@ bash .agent/hooks/restore-sandbox-env.sh
 
 - `git reset --hard FETCH_HEAD` は §4.3 の厳禁ルールの例外で、**サンドボックス再構築後の初回のみ**許可される（未コミット変更は元々存在しない状態のため）。
 - 再構築を判定するヒント：`git log --oneline` が起点コミット 1 個しか返ってこない / `git status` が大量の削除を示す / node_modules がない / **依存が未インストール**。
-- 復旧後は必ず `git log --oneline -5` と `npm run typecheck` 等で健全性を確認してから作業を再開する。
+- 復旧後は必ず `git log --oneline -5` と `pnpm run typecheck` 等で健全性を確認してから作業を再開する。
 - 詳細手順は [`.agent/hooks/sandbox-rebuild-recovery.md`](.agent/hooks/sandbox-rebuild-recovery.md) ＋ [`.agent/hooks/restore-sandbox-env.sh`](.agent/hooks/restore-sandbox-env.sh)。
 
 ### 4.2 コミットルール
@@ -171,8 +171,8 @@ bash .agent/hooks/restore-sandbox-env.sh
 本プロジェクトで踏みやすい地雷と運用ルール。**計画書（`docs/planning/*PLAN.md`）に矛盾する指定があった場合は計画書を優先**する。計画書に無い事項は本節と [`docs/arch/`](docs/arch/README.md) を厳守する。**ADR（[`docs/arch/adr.md`](docs/arch/adr.md)）に反する実装はせず、人間に確認する。**
 
 ### 6.1 環境・ツールチェーン
-- **ランタイム / パッケージ管理: Node.js 22 + npm**（`npm ci` / `npm run` / `npx`）。`bun` は使わない（本リポジトリは `nextjs-postgresql-template` 由来）。
-  - Node バージョンは `.nvmrc` があればそれに追従。Sandbox 再構築時は [`.agent/hooks/restore-sandbox-env.sh`](.agent/hooks/restore-sandbox-env.sh) が npm 経由で依存を復旧する。
+- **ランタイム / パッケージ管理: Node.js 22 + pnpm 12.5.1**（`pnpm install --frozen-lockfile` / `pnpm run` / `pnpm exec` / `pnpm dlx`）。`bun` / `npm ci` は使わない（`packageManager: pnpm@12.5.1`）。
+  - Node バージョンは `.nvmrc` があればそれに追従。`pnpm-workspace.yaml` の `allowBuilds: { esbuild: true, sharp: true }` を維持。Sandbox 再構築時は [`.agent/hooks/restore-sandbox-env.sh`](.agent/hooks/restore-sandbox-env.sh) が pnpm 経由で依存を復旧する。
 - **フレームワーク: Next.js 16 (App Router) + React 19 + TypeScript 5 (strict)**。`tsconfig.json` の `paths: { "@/*": ["./src/*"] }` を維持する。
   - `next.config.ts` は最小構成。必要な追加は `docs/arch/adr.md` に記録してから行う。
   - Server Component を原則とし、Leaflet 等ブラウザ専用は `dynamic(..., { ssr:false })` で分離する。
@@ -187,8 +187,8 @@ bash .agent/hooks/restore-sandbox-env.sh
   - `spots.spotcd` が主キー。upsert は冪等に。index は `prefecture` / `genre` / `(lat,lng)`。
 - **スクレイピング: cheerio + tsx**（`scripts/scrape.ts` / `scripts/seed.ts`）。出力は `data/spots.geojson`（FeatureCollection / 752件規模）。
   - 既存ファイルとマージする挙動を壊さない。並列度・待機・UA は [`docs/arch/scraping.md`](docs/arch/scraping.md) のポライトネス方針に従う。
-- **Lint/Format: ESLint 9 (flat config)**。`eslint.config.mjs` は `eslint-config-next/core-web-vitals` + `globalIgnores([".next/**", ...])`。Prettier / Biome は使わない。
-- **ビルド/Dev: `npm run dev` (next dev) / `npm run build` / `npm start`**。`postcss.config.mjs` は `@tailwindcss/postcss` のみ。
+- **Lint/Format: Biome 2.5.x**（`biome.json` / `biome check .` / `biome ci .`）。`eslint.config.mjs` は削除済み（Next 16 で `next lint` 廃止）。Prettier / ESLint は使わない。Tailwind v4 の `@theme` は `css.parser.tailwindDirectives: true` で扱う。
+- **ビルド/Dev: `pnpm run dev` (next dev) / `pnpm run build` / `pnpm start`**。`postcss.config.mjs` は `@tailwindcss/postcss` のみ。
 - arch に無い主要ライブラリを導入する場合はユーザーに相談する。
 
 ### 6.2 サンドボックス制約（乗り越えず、迂回する）
@@ -196,7 +196,7 @@ bash .agent/hooks/restore-sandbox-env.sh
 | 制約 | 対処 |
 |---|---|
 | **PostgreSQL が無い / `DATABASE_URL` 未設定** | `src/lib/spots-repo.ts` の `ensureSeeded()` が `data/spots.geojson` から自動シードする。DB 接続失敗は `tableReady()` / `createTableIfMissing()` のフォールバックで吸収する。ローカル検証は GeoJSON 直読みでも API 契約を満たすことを優先する。 |
-| **ブラウザ / 地図の目視が限定的** | Leaflet の描画は Sandbox ではヘッドレス差がある。`MapClient` のロジック（bbox 計算・クラスタリング・フィルタ）は純粋関数として分離し、ユニットテスト可能にする。目視はプレビュー（`npm run dev` の 0.0.0.0 公開）で確認する。 |
+| **ブラウザ / 地図の目視が限定的** | Leaflet の描画は Sandbox ではヘッドレス差がある。`MapClient` のロジック（bbox 計算・クラスタリング・フィルタ）は純粋関数として分離し、ユニットテスト可能にする。目視はプレビュー（`pnpm run dev` の 0.0.0.0 公開）で確認する。 |
 | **外部ネットワークの一部到達不可（ghostmap.jp）** | 実 scrape は Sandbox で不安定。パース（cheerio）・座標抽出（`?q=lat,lng` 正規表現）・マージは純粋関数でテストする。実取得は「実環境検証待ち」と明記する。 |
 | **GitHub API / 再取得の制限** | `scripts/scrape.ts` の `PREFS` / `LIMIT_PER_PREF` / `CONCURRENCY` を使った少量実行で検証する。本番の全47都道府県取得は週次 workflow で行う。 |
 
@@ -210,8 +210,8 @@ bash .agent/hooks/restore-sandbox-env.sh
 - **レスポンシブ**：モバイルは Bottom Sheet（ドラッグで閉じる）、デスクトップはサイドパネル。`h-dvh` / `viewportFit: cover` を維持する。
 - **`DisclaimerDialog` は初回訪問時の必須同意**（LocalStorage）。文言変更時は [`docs/arch/legal.md`](docs/arch/legal.md) と整合させる。
 
-### 6.5 ESLint / TypeScript 固有ルール
-- `eslint.config.mjs` は flat config。`globalIgnores` で `.next/**` / `out/**` / `build/**` / `next-env.d.ts` を除外する。`files.includes` 的な除外は書かない。
+### 6.5 Biome / TypeScript 固有ルール
+- `biome.json` は root 設定。`$schema: https://biomejs.dev/schemas/2.5.14/schema.json` / `linter.domains: { next: recommended, react: recommended, project: recommended }` / `css.parser.tailwindDirectives: true` / `overrides` で `globals.css` の `noImportantStyles` を除外。`files.includes` は `**` / `!.next` 等。
 - `tsconfig.json` は `strict: true` / `noEmit` / `moduleResolution: bundler`。`baseUrl: "."` と `paths: { "@/*": ["./src/*"] }` を維持する。
 - 型の `any` 逃げを禁止。`SpotFeature` / `SpotProperties` 等の domain 型は `src/lib/types.ts` が正本。
 
@@ -281,9 +281,9 @@ bash .agent/hooks/restore-sandbox-env.sh
 3. **ファイル変更数**: `新規/変更ファイル (N files, +X / -Y)`
 4. **検証結果チェックリスト**:
    ```text
-   - ✅ npm run typecheck: 0 error
-   - ✅ npm run lint: 0 error (N files)
-   - ✅ npm run build: built in Xs
+    - ✅ pnpm run typecheck: 0 error
+   - ✅ pnpm run check: 0 error (N files)
+   - ✅ pnpm run build: built in Xs
    - ✅ push 済み（`prev..head`）
    ```
 5. **次のアクション**: 「次は何をしますか?」「Go を出していただければ〜」と提示、勝手に次のタスクを開始しない（§5 のタスク完了条件）。

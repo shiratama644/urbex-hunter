@@ -1,14 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
-import {
-  MapContainer,
-  TileLayer,
-  ZoomControl,
-  useMap,
-  useMapEvents,
-} from "react-leaflet";
 import L from "leaflet";
+import { useEffect, useMemo, useRef } from "react";
+import { MapContainer, TileLayer, useMap, useMapEvents, ZoomControl } from "react-leaflet";
 import "leaflet.markercluster";
 import "leaflet/dist/leaflet.css";
 import "leaflet.markercluster/dist/MarkerCluster.css";
@@ -44,7 +38,7 @@ function pinIcon(spot: SpotFeature, selected: boolean) {
   return L.divIcon({
     className: `ghost-pin${selected ? " ghost-pin-selected" : ""}`,
     html: `<div class="ghost-pin-inner" style="background:${tone.bg};color:${tone.fg}"><span>${genreEmoji(
-      spot.properties.genre,
+      spot.properties.genre
     )}</span></div>`,
     iconSize: [34, 34],
     iconAnchor: [17, 34],
@@ -92,6 +86,7 @@ function ClusterLayer({
     };
   }, [map]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedId は icon 更新のみで再構築しない — 別 useEffect で setIcon する
   useEffect(() => {
     const group = groupRef.current;
     if (!group) return;
@@ -109,8 +104,6 @@ function ClusterLayer({
       return marker;
     });
     group.addLayers(markers);
-    // selectedId は icon 更新のみで再構築しない
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spots]);
 
   useEffect(() => {
@@ -123,15 +116,10 @@ function ClusterLayer({
   return null;
 }
 
-function BoundsReporter({
-  onBoundsChange,
-}: Pick<Props, "onBoundsChange">) {
+function BoundsReporter({ onBoundsChange }: Pick<Props, "onBoundsChange">) {
   const report = (map: L.Map) => {
     const b = map.getBounds();
-    onBoundsChange(
-      [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()],
-      map.getZoom(),
-    );
+    onBoundsChange([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], map.getZoom());
   };
   const map = useMapEvents({
     moveend: () => report(map),
@@ -204,11 +192,7 @@ export default function MapClient({
         maxZoom={19}
         detectRetina
       />
-      <ClusterLayer
-        spots={spots}
-        selectedId={selectedId}
-        onSelect={onSelect}
-      />
+      <ClusterLayer spots={spots} selectedId={selectedId} onSelect={onSelect} />
       <BoundsReporter onBoundsChange={onBoundsChange} />
       <FlyController flyTarget={flyTarget} />
       <UserMarker userPosition={userPosition} />

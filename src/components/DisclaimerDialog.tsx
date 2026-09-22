@@ -1,8 +1,8 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
+import { HeartHandshake, ShieldAlert, TriangleAlert, UserRoundX } from "lucide-react";
 import { useEffect, useState } from "react";
-import { ShieldAlert, TriangleAlert, UserRoundX, HeartHandshake } from "lucide-react";
 
 const STORAGE_KEY = "ghostmap:disclaimer:v1";
 
@@ -84,9 +84,7 @@ export default function DisclaimerDialog() {
                 >
                   <Icon size={18} className="mt-0.5 shrink-0 text-m3-primary" />
                   <div>
-                    <p className="text-title-sm font-semibold text-m3-on-surface">
-                      {title}
-                    </p>
+                    <p className="text-title-sm font-semibold text-m3-on-surface">{title}</p>
                     <p className="mt-0.5 text-body-sm leading-relaxed text-m3-on-surface-variant">
                       {body}
                     </p>

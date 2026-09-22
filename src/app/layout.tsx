@@ -26,9 +26,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ja">
-      <body className="bg-m3-surface-dim text-m3-on-surface antialiased">
-        {children}
-      </body>
+      <body className="bg-m3-surface-dim text-m3-on-surface antialiased">{children}</body>
     </html>
   );
 }

@@ -1,16 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import {
-  ExternalLink,
-  Ghost,
-  MapPin,
-  Navigation,
-  Quote,
-  Star,
-  Trophy,
-  X,
-} from "lucide-react";
+import { ExternalLink, Ghost, MapPin, Navigation, Quote, Star, Trophy, X } from "lucide-react";
 import { fearTone, genreEmoji, type SpotFeature } from "@/lib/types";
 
 type Props = {
@@ -93,13 +84,7 @@ function Chip({
   );
 }
 
-export default function SpotDetailSheet({
-  spot,
-  nearby,
-  loading,
-  onClose,
-  onSelectNearby,
-}: Props) {
+export default function SpotDetailSheet({ spot, nearby, loading, onClose, onSelectNearby }: Props) {
   const p = spot.properties;
   const [lng, lat] = spot.geometry.coordinates;
   const tone = fearTone(p.fearRating);
@@ -135,9 +120,7 @@ export default function SpotDetailSheet({
           </div>
           <div className="min-w-0 flex-1">
             {p.kana ? (
-              <p className="truncate text-label-sm text-m3-on-surface-variant">
-                {p.kana}
-              </p>
+              <p className="truncate text-label-sm text-m3-on-surface-variant">{p.kana}</p>
             ) : null}
             <h2 className="truncate text-headline-sm font-semibold tracking-tight text-m3-on-surface">
               {p.name}
@@ -146,10 +129,7 @@ export default function SpotDetailSheet({
               {p.genre ? <Chip tone="primary">{p.genre}</Chip> : null}
               {p.status ? <Chip tone="tertiary">{p.status}</Chip> : null}
               <Chip>
-                <span
-                  className="size-1.5 rounded-full"
-                  style={{ background: tone.bg }}
-                />
+                <span className="size-1.5 rounded-full" style={{ background: tone.bg }} />
                 危険度 {tone.label}
               </Chip>
             </div>
@@ -182,9 +162,7 @@ export default function SpotDetailSheet({
           <section className="rounded-m3-xl bg-m3-surface-container/80 p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-label-md text-m3-on-surface-variant">
-                  怖さ評価
-                </p>
+                <p className="text-label-md text-m3-on-surface-variant">怖さ評価</p>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="text-display-sm font-semibold leading-none text-m3-on-surface">
                     {p.fearRating?.toFixed(2) ?? "–"}
@@ -235,9 +213,7 @@ export default function SpotDetailSheet({
           {/* 現象・特徴 */}
           {p.phenomena.length || p.features.length ? (
             <section className="mt-4">
-              <h3 className="text-title-sm font-semibold text-m3-on-surface">
-                心霊現象・特徴
-              </h3>
+              <h3 className="text-title-sm font-semibold text-m3-on-surface">心霊現象・特徴</h3>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {p.phenomena.map((ph) => (
                   <Chip key={ph} tone="primary">
@@ -257,9 +233,7 @@ export default function SpotDetailSheet({
           <section className="mt-4 flex items-start gap-2 rounded-m3-lg bg-m3-surface-container/60 p-3">
             <MapPin size={16} className="mt-0.5 shrink-0 text-m3-primary" />
             <div className="min-w-0">
-              <p className="text-body-md text-m3-on-surface">
-                {p.address ?? "住所不明"}
-              </p>
+              <p className="text-body-md text-m3-on-surface">{p.address ?? "住所不明"}</p>
               <p className="mt-0.5 text-label-sm text-m3-on-surface-variant">
                 {lat.toFixed(6)}, {lng.toFixed(6)}
               </p>
@@ -278,9 +252,7 @@ export default function SpotDetailSheet({
 
           {/* 近くのスポット */}
           <section className="mt-5">
-            <h3 className="text-title-sm font-semibold text-m3-on-surface">
-              近くの心霊スポット
-            </h3>
+            <h3 className="text-title-sm font-semibold text-m3-on-surface">近くの心霊スポット</h3>
             {loading ? (
               <div className="mt-2 space-y-2">
                 {[0, 1, 2].map((i) => (
@@ -299,9 +271,7 @@ export default function SpotDetailSheet({
                       onClick={() => onSelectNearby(n)}
                       className="flex w-full items-center gap-3 rounded-m3-lg bg-m3-surface-container/70 px-3 py-2 text-left transition hover:bg-m3-surface-container-highest active:scale-[0.99]"
                     >
-                      <span className="text-lg">
-                        {genreEmoji(n.properties.genre)}
-                      </span>
+                      <span className="text-lg">{genreEmoji(n.properties.genre)}</span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-body-md text-m3-on-surface">
                           {n.properties.name}

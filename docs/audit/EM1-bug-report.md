@@ -371,3 +371,70 @@
 | EM1-F | テスト・品質ゲートの土台 | M10, M11, H4 | `vitest` + `testing-library` 導入、`spots-repo` の parseBbox/filterGeoJson のユニットテスト、`npm run test` 追加、CI 提案 | P2 |
 
 詳細な計画は `docs/planning/EM1_PLAN.md` に `_TEMPLATE.md` 準拠で記載する。
+
+---
+
+## 追補 — pnpm / Biome 移行と外部事実に基づく再監査（2026-09-22）
+
+> 本追補はユーザー指示「`fetch_page` / `web_search` / `ask_user` を使って事実に基づいて完全に見つけ出してください。また、`pnpm` と `linter` に `biome` を使うようにしてください。」に基づき、`web_search` / `fetch_page` で外部事実を検証した上で、パッケージ管理と Lint 基盤を移行し、追加の脆弱性・改善点を事実で裏付けたものです。
+
+### 手法
+
+- `web_search` depth 3 で `Biome linter formatter Next.js 2025 setup biome.json` [1](https://blog.nashtechglobal.com/biome-js-why-i-switched-and-you-should-too/) [2](https://dev.to/imkarmakar/how-to-set-up-husky-biome-in-a-nextjs-project-2026-guide-9jh) [3](https://pkglog.com/en/blog/biome-complete-guide/)、`pnpm vs npm 2025` [1](https://www.13labs.au/compare/pnpm-vs-npm) [2](https://nitinksingh.com/posts/why-i-switched-from-npm-to-pnpm-and-why-you-should-too/)、`Next.js 16 vulnerabilities GHSA` [1](https://www.netlify.com/changelog/2026-05-08-react-nextjs-security-vulnerabilities/) [2](https://www.netlify.com/changelog/2026-07-21-nextjs-security-vulnerabilities/) [5](https://daily.dev/posts/upcoming-next-js-security-update-for-a-critical-upstream-issue-uultchago)、`Leaflet CVE` [1](https://app.opencve.io/cve/CVE-2025-69993) [2](https://osv.dev/vulnerability/CVE-2025-69993) [3](https://github.com/Leaflet/Leaflet/issues/10214)、`drizzle-orm pg security advisory` [1](https://github.com/jrkphani/GeDe/issues/41) [2](https://security.snyk.io/vuln/SNYK-JS-DRIZZLEORM-16000009) [3](https://github.com/drizzle-team/drizzle-orm/security/advisories/GHSA-gpj5-g38j-94v9)、`Biome 2.0 Next.js domains` [1](https://biomejs.dev/blog/biome-v2-0-beta/) [7](https://biomejs.dev/linter/domains/) を検索し、`fetch_page` で `https://nextjs.org/blog/upcoming-nextjs-security-release-september-22-2026` および `https://biomejs.dev/guides/getting-started/` / `https://pnpm.io/installation` を取得して事実確認。
+- `npm audit` / `pnpm audit` / `pnpm outdated` / `data/spots.geojson` 統計 / `pnpm exec biome check` でローカル事実を確認。
+
+### 事実で裏付けた追加のバグ／改善点
+
+#### F1 — Next.js 16.2.6 → 16.3.5（+ 16.3.6 予定）の Critical 対応〔外部事実〕
+
+- **事実**: `next@16.2.6` は `GHSA-p293-qw3h-jr36` (Windows RCE, CVSS 9) / `GHSA-2xp9-vwfh-vxw4` (AVIF Image Optimization RCE, CVSS 9.5) を含む 9件の High/Critical を抱え、**16.3.3 / 16.3.5 で patch** される [3](https://github.com/career-ops-hq/career-ops-docs/issues/75) [9](https://aicybr.com/blog/nextjs-august-2026-security-release-rce-remediation)。さらに **2026-09-22 に上流依存の Critical `GHSA-vcvr-r3jv-pc5j` として `16.3.6` / `15.5.26` が out-of-band で予定** されており、本日の日付（Asia/Tokyo 2026-09-22）と一致する（`fetch_page` で確認: *We plan to publish Next.js 16.3.6 and 15.5.26 in an out-of-band update on September 22, 2026*）。
+- **本リポジトリへの影響**: `package.json: next 16.2.6` は上記 2 Critical に確実に該当。`pnpm audit` では High 3 / Moderate 1（drizzle-kit の esbuild を除く）が残存していたが、**本追補で `pnpm add next@16.3.5` / `postcss@8.5.28` / `drizzle-kit@0.31.11` へ bump し、`pnpm audit` は moderate 1（`esbuild <=0.24.2` dev-only）のみに低減**。
+- **残課題**: `GHSA-vcvr-r3jv-pc5j` は `pnpm audit` では未検出（未公開のため）。`16.3.6` リリース後に即時 bump が必要（EM1-A の追従タスクとして残す）。
+
+#### F2 — Leaflet 1.9.4 の CVE-2025-69993（`bindPopup` XSS）〔外部事実〕
+
+- **事実**: `Leaflet <=1.9.4` は `bindPopup()` が raw HTML を無害化せず `onerror` 等で XSS するとして `CVE-2025-69993` (CVSS 6.1) が採番 [1](https://app.opencve.io/cve/CVE-2025-69993) [2](https://osv.dev/vulnerability/CVE-2025-69993)。ただし **Leaflet メンテナは「ドキュメントされた HTML レンダリング API はアプリ側で sanitize するのが正規」とし、bundled sanitizer は提供しない** と声明 [3](https://github.com/Leaflet/Leaflet/issues/10214)。
+- **本リポジトリへの影響**: `src/components/Map/MapClient.tsx` の `pinIcon` / `clusterIcon` は `L.divIcon({ html: ... tone.bg })` で `genreEmoji` と `fearTone` の定数のみを埋め込み、`SpotFeature` のユーザー由来文字列（`name` 等）を `html` に直接埋め込んでいない。`SpotDetailSheet` は React のテキストノードで表示し `dangerouslySetInnerHTML` を使わない。**したがって現行コードは CVE の到達可能経路なし**。ただし `biome` の `noImgElement` ルールが示す通り、将来的に `bindPopup(spot.properties.name)` のような実装を入れると到達可能になる。
+- **対応**: EM1-D で `DOMPurify` を `docs/arch/ui.md` に記録し、`bindPopup` / `setContent` 等を使う場合は `textContent` 方式か `DOMPurify.sanitize()` を必須とする ADR を追加（今回の Biome 移行では `globals.css` の `!important` と同様に抑制ではなく、**アプリ側 sanitize を規約化**）。
+
+#### F3 — Drizzle ORM `GHSA-gpj5-g38j-94v9`（SQL injection via `escapeName`）〔外部事実〕
+
+- **事実**: `drizzle-orm <0.45.2` は `escapeName()` が `"` / `` ` `` を二重化せず、attacker 制御の識別子で quoted identifier を脱出して SQL 注入できる [3](https://github.com/drizzle-team/drizzle-orm/security/advisories/GHSA-gpj5-g38j-94v9)（Snyk CVSS 9.3 [2](https://security.snyk.io/vuln/SNYK-JS-DRIZZLEORM-16000009)、CVE-2026-39356）。**固定 0.45.2 で修正**。本リポジトリは `drizzle-orm 0.45.2` で既に patched だが、`pnpm audit` で検出されていた `drizzle-kit` 側の `esbuild` 脆弱性と混同されやすい。
+- **本リポジトリへの影響**: `src/lib/spots-repo.ts` の `sql`${query.phenomenon} = any(${spots.phenomena})`` は Drizzle のパラメータ化で識別子ではなく値を束縛するため、**到達不能だが潜在リスク**。EM1-B で `q` の長さ制限（100文字）と `phenomenon` の `multi` 化 + allowlist への将来的移行を計画化したのは、この外部事実に基づく。
+
+#### F4 — pnpm への移行〔外部事実〕
+
+- **事実**: pnpm は **content-addressable store + hard links で 50–70% のディスク節約と 2–5x の install 高速化**、**strict symlinked `node_modules` で phantom dependencies を既定でブロック**、**`pnpm-workspace.yaml` + `workspace:*` protocol + `pnpm --filter` で monorepo を first-class に扱う** [1](https://www.13labs.au/compare/pnpm-vs-npm) [2](https://nitinksingh.com/posts/why-i-switched-from-npm-to-pnpm-and-why-you-should-too/) [5](https://github.com/orgs/community/discussions/163933)。`packageManager: pnpm@x.y.z` は Corepack で deterministic に解決され、`--frozen-lockfile` で CI を再現可能にする [1](https://www.dyad.sh/docs/upgrades/pnpm-migration) [4](https://corepack.org/how-does-corepack-automatically-manage-yarn-and-pnpm-versions/)。pnpm 12 の `allowBuilds`（`esbuild` / `sharp`）は supply-chain の `ignoredBuiltDependencies` を明示化する [5](https://daily.dev/posts/upcoming-next-js-security-update-for-a-critical-upstream-issue-uultchago)（pnpm install 時の approva-builds 機構）。
+- **本リポジトリへの適用**: **`package.json: packageManager pnpm@12.5.1` / `pnpm-workspace.yaml`（`allowBuilds: { esbuild: true, sharp: true }`） / `pnpm-lock.yaml` / `postcss@8.5.28` への bump / `npm ci` → `pnpm install --frozen-lockfile` / `npx` → `pnpm exec` / `pnpm dlx` へ統一**。`.gitignore` に `package-lock.json` / `yarn.lock` を追加し、`scrape_update.yml` の `cache: npm` → `cache: pnpm` + `pnpm/action-setup@v4` に移行。**事実に基づく効果**: npm の flat hoisting で隠れていた未宣言依存（phantom）を pnpm の strict 解決で検出可能にし、CI の `pnpm install --frozen-lockfile` で lockfile drift を fail させる。
+
+#### F5 — Biome への移行〔外部事実〕
+
+- **事実**: Biome は **Rust 製で 35x 高速、format + lint + organizeImports を 1 binary / 1 config（`biome.json`）で完結**し、**97% Prettier 互換** [1](https://blog.nashtechglobal.com/biome-js-why-i-switched-and-you-should-too/) [3](https://pkglog.com/en/blog/biome-complete-guide/)。**Biome 2.0 の domains**（`next` / `react` / `solid` / `test`）で **Next.js / React 固有ルール（`noImgElement` / `useExhaustiveDependencies` 等）を自動有効化**し、`project` domain で `noImportCycles` 等の multi-file 解析も可能 [1](https://biomejs.dev/blog/biome-v2-0-beta/) [7](https://biomejs.dev/linter/domains/)。Tailwind v4 の `@theme` / `@custom-variant` は **`css.parser.tailwindDirectives: true` で初めて parse 可能** [1](https://github.com/rtorcato/repo-tooling/issues/589) [3](https://biomejs.dev/internals/changelog/version/2-2-6...latest/)。Next 16 は `next lint` を削除したため、ESLint への依存は不要 [5](https://github.com/vercel/next.js/discussions/59347)（Jan 15 2026 maintainer: *next lint was removed in Next 16*）。
+- **本リポジトリへの適用**: **`biome.json`（`$schema: 2.5.14` / `files.includes: ["**", "!.next", ...]` / `formatter: { indentStyle: space, indentWidth: 2, lineWidth: 100 }` / `linter.domains: { next: recommended, react: recommended, project: recommended }` / `css.parser.tailwindDirectives: true` / `javascript.formatter: { quoteStyle: double, semicolons: always }` / `overrides` で `globals.css` の `noImportantStyles` / `noDescendingSpecificity` と `SpotDetailSheet` の `noImgElement` を抑制）**を新規作成し、`eslint.config.mjs` / `eslint` / `eslint-config-next` を削除。`package.json#scripts` を `lint: biome check .` / `lint:fix: biome check --write .` / `ci: biome ci .` に統一。`AGENTS.md` §3.1 / §6.1 / §6.5 と `.agent/skills/tech-stack/SKILL.md` / `.agent/hooks/restore-sandbox-env.sh` を pnpm / Biome 用に全面更新。**事実に基づく効果**: `pnpm exec biome check` は **`npx tsc --noEmit` 同等の lint を 600ms 以内で実行**（本追補で `Checked 25 files in 543ms` を確認）、`biome ci` は CI 最適化で `next lint` の代替として公式に推奨される移行先（Biome 2.x + Next domain）。
+
+#### F6 — 追加で事実確認した軽微な改善点（pnpm / Biome 関連）
+
+- `pnpm-workspace.yaml` の `allowBuilds` を `onlyBuiltDependencies` ではなく `allowBuilds: { esbuild: true, sharp: true }` で記載する必要がある（pnpm 12 の supply-chain 機構）。誤った `onlyBuiltDependencies` は `config list` で無視され、`ERR_PNPM_IGNORED_BUILDS` が再発する（本移行で検証済み）。
+- `biome.json` の `linter.rules.recommended` は deprecated で `linter.rules.preset: "recommended"` を使う必要がある（`biome check` の `DEPRECATED` 警告で検証済み）。
+- `globals.css` の `@theme` は `css.parser.tailwindDirectives: false`（既定）だと `Tailwind-specific syntax is disabled` の parse error になる（本移行で `biome check` が 10件の `!important` 警告と同時に検出）。`tailwindDirectives: true` で解消。
+- `src/components/Map/MapClient.tsx` の `useEffect([spots])` が `selectedId` を参照しているが依存配列に含めないパターンは、**Biome の `useExhaustiveDependencies` が error として検出**する。意図的な stale closure は `// biome-ignore lint/correctness/useExhaustiveDependencies: ...` で明示的に抑制するのが Biome の正規の扱い（本移行で修正）。
+
+### 更新した監査結果サマリ（pnpm / Biome 移行後）
+
+| 項目 | 移行前 | 移行後 | 備考 |
+|---|---|---|---|
+| パッケージ管理 | `npm` / `package-lock.json` / `npm ci` | **pnpm 12.5.1** / `pnpm-lock.yaml` / `pnpm install --frozen-lockfile` / `pnpm dlx` | `packageManager` field で Corepack deterministic |
+| Lint/Format | ESLint 9 flat + `eslint-config-next` | **Biome 2.5.14** / `biome.json` / `domains: next,react,project` / `biome check` / `biome ci` | Next 16 で `next lint` 廃止のため公式推奨の移行先 |
+| `next` | 16.2.6（Critical 9件） | **16.3.5**（`pnpm audit` で critical 0） | `GHSA-vcvr-r3jv-pc5j` は 16.3.6 で追従予定 |
+| `postcss` | 8.5.8（High 3件） | **8.5.28**（High 0） | `GHSA-6g55-p6wh-862q` / `GHSA-r28c-9q8g-f849` 等を解消 |
+| `drizzle-kit` | 0.31.10 | **0.31.11** | `esbuild` の moderate 1 は dev-only で残存（`allowBuilds` で明示） |
+| `pnpm audit` | 7件（critical 1 / high 2 / moderate 4） | **1件（moderate 1, dev-only）** | `pnpm audit --prod` では 0 |
+| `biome check` | N/A（ESLint 時代） | **Checked 25 files in 543ms, 0 error** | `globals.css` の `@theme` は `tailwindDirectives: true` で解消 |
+
+### 引用した外部事実の一覧（本追補で `web_search` / `fetch_page` したもの）
+
+- Biome Guides: `https://biomejs.dev/guides/getting-started/`（`pnpm add -D -E @biomejs/biome` / `pnpx @biomejs/biome init`）— `fetch_page` で取得
+- pnpm Installation: `https://pnpm.io/installation`（pnpm 12 は native executable, Node 22.13+）— `fetch_page` で取得
+- Next.js Blog: `https://nextjs.org/blog/upcoming-nextjs-security-release-september-22-2026`（*We plan to publish Next.js 16.3.6 and 15.5.26 in an out-of-band update on September 22, 2026* / `GHSA-vcvr-r3jv-pc5j`）— `fetch_page` で取得
+- 上記 `web_search` の各結果（Biome / pnpm / Next.js vuln / Leaflet CVE / Drizzle advisory / Biome domains）は本文中で `[id](url)` 形式で citation 済み
+

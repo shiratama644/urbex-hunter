@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Ghost,
@@ -12,17 +11,13 @@ import {
   Star,
   X,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Bbox } from "@/components/Map/MapClient";
-import SpotDetailSheet from "@/components/SpotDetailSheet";
 import DisclaimerDialog from "@/components/DisclaimerDialog";
 import FilterPanel from "@/components/FilterPanel";
-import {
-  genreEmoji,
-  type SpotCollection,
-  type SpotFacets,
-  type SpotFeature,
-} from "@/lib/types";
+import type { Bbox } from "@/components/Map/MapClient";
+import SpotDetailSheet from "@/components/SpotDetailSheet";
+import { genreEmoji, type SpotCollection, type SpotFacets, type SpotFeature } from "@/lib/types";
 
 const MapClient = dynamic(() => import("@/components/Map/MapClient"), {
   ssr: false,
@@ -90,14 +85,9 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
         const h = bbox[3] - bbox[1];
         params.set(
           "bbox",
-          [
-            bbox[0] - w * pad,
-            bbox[1] - h * pad,
-            bbox[2] + w * pad,
-            bbox[3] + h * pad,
-          ]
+          [bbox[0] - w * pad, bbox[1] - h * pad, bbox[2] + w * pad, bbox[3] + h * pad]
             .map((n) => n.toFixed(5))
-            .join(","),
+            .join(",")
         );
       }
       setLoadingSpots(true);
@@ -130,10 +120,9 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(
-          `/api/spots?q=${encodeURIComponent(q)}&limit=8`,
-          { signal: controller.signal },
-        );
+        const res = await fetch(`/api/spots?q=${encodeURIComponent(q)}&limit=8`, {
+          signal: controller.signal,
+        });
         const data = (await res.json()) as SpotCollection;
         setSuggestions(data.features ?? []);
       } catch {
@@ -192,17 +181,14 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
       () => {
         setFlyTarget({ lat: 35.681236, lng: 139.767125, zoom: 11, key: Date.now() });
       },
-      { enableHighAccuracy: true, timeout: 8000 },
+      { enableHighAccuracy: true, timeout: 8000 }
     );
   }, []);
 
   const toggleGenre = (g: string) =>
-    setGenres((prev) =>
-      prev.includes(g) ? prev.filter((v) => v !== g) : [...prev, g],
-    );
+    setGenres((prev) => (prev.includes(g) ? prev.filter((v) => v !== g) : [...prev, g]));
 
-  const activeFilterCount =
-    genres.length + prefs.length + (minRating > 0 ? 1 : 0);
+  const activeFilterCount = genres.length + prefs.length + (minRating > 0 ? 1 : 0);
 
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-m3-surface-dim">
@@ -273,9 +259,7 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
                       onClick={() => openSpot(s, true)}
                       className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-m3-surface-container-highest"
                     >
-                      <span className="text-lg">
-                        {genreEmoji(s.properties.genre)}
-                      </span>
+                      <span className="text-lg">{genreEmoji(s.properties.genre)}</span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-body-md text-m3-on-surface">
                           {s.properties.name}
@@ -343,9 +327,7 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
               >
                 <span>{genreEmoji(g.value)}</span>
                 {g.value}
-                <span className="text-label-sm text-m3-on-surface-variant">
-                  {g.count}
-                </span>
+                <span className="text-label-sm text-m3-on-surface-variant">{g.count}</span>
               </button>
             );
           })}
@@ -361,8 +343,8 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
             <Ghost size={14} className="text-m3-primary" />
           )}
           <span>
-            表示中 <strong className="font-semibold">{spots.length}</strong> /
-            全国 {facets.total.toLocaleString("ja-JP")} スポット
+            表示中 <strong className="font-semibold">{spots.length}</strong> / 全国{" "}
+            {facets.total.toLocaleString("ja-JP")} スポット
           </span>
         </div>
       </div>
@@ -411,9 +393,7 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
         minRating={minRating}
         onToggleGenre={toggleGenre}
         onTogglePref={(p) =>
-          setPrefs((prev) =>
-            prev.includes(p) ? prev.filter((v) => v !== p) : [...prev, p],
-          )
+          setPrefs((prev) => (prev.includes(p) ? prev.filter((v) => v !== p) : [...prev, p]))
         }
         onMinRating={setMinRating}
         onReset={() => {

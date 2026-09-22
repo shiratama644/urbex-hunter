@@ -3,8 +3,8 @@
  *   npx tsx scripts/seed.ts
  */
 import "dotenv/config";
-import { importGeoJsonIntoDb } from "../src/lib/spots-repo";
 import { pool } from "../src/db";
+import { importGeoJsonIntoDb } from "../src/lib/spots-repo";
 
 async function main() {
   const count = await importGeoJsonIntoDb();

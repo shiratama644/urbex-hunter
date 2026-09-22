@@ -1,25 +1,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  gte,
-  ilike,
-  inArray,
-  or,
-  sql,
-  type SQL,
-} from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, or, type SQL, sql } from "drizzle-orm";
 import { db, isDbConfigured } from "@/db";
-import { spots, type NewSpotRow, type SpotRow } from "@/db/schema";
-import type {
-  SpotCollection,
-  SpotFacets,
-  SpotFeature,
-  SpotProperties,
-} from "@/lib/types";
+import { type NewSpotRow, type SpotRow, spots } from "@/db/schema";
+import type { SpotCollection, SpotFacets, SpotFeature, SpotProperties } from "@/lib/types";
 
 const GEOJSON_PATH = path.join(process.cwd(), "data", "spots.geojson");
 
@@ -134,7 +118,7 @@ async function getNearbyFromGeoJson(
   spotcd: number,
   lat: number,
   lng: number,
-  limit = 4,
+  limit = 4
 ): Promise<SpotFeature[]> {
   const features = await readGeoJson();
   const scored = features
@@ -191,15 +175,9 @@ async function createTableIfMissing() {
       "updated_at" timestamptz not null default now()
     )
     `);
-    await db.execute(
-      sql`create index if not exists "spots_pref_idx" on "spots" ("prefecture")`,
-    );
-    await db.execute(
-      sql`create index if not exists "spots_genre_idx" on "spots" ("genre")`,
-    );
-    await db.execute(
-      sql`create index if not exists "spots_bbox_idx" on "spots" ("lat","lng")`,
-    );
+    await db.execute(sql`create index if not exists "spots_pref_idx" on "spots" ("prefecture")`);
+    await db.execute(sql`create index if not exists "spots_genre_idx" on "spots" ("genre")`);
+    await db.execute(sql`create index if not exists "spots_bbox_idx" on "spots" ("lat","lng")`);
   } catch (error) {
     // 並列プロセスが同時に CREATE TABLE した場合の競合は無視して続行
     const code = (error as { code?: string }).code;
@@ -286,9 +264,7 @@ export async function ensureSeeded(): Promise<void> {
       // 複数プロセス（ビルドワーカー等）の同時シードを防ぐ (transaction scoped lock)
       await db.transaction(async (tx) => {
         await tx.execute(sql`select pg_advisory_xact_lock(918273645)`);
-        const [row] = await tx
-          .select({ c: sql<number>`count(*)::int` })
-          .from(spots);
+        const [row] = await tx.select({ c: sql<number>`count(*)::int` }).from(spots);
         if (!row || row.c === 0) await importGeoJsonIntoDb();
       });
     })().catch((err) => {
@@ -342,10 +318,10 @@ function buildConditions(query: SpotQuery): SQL[] {
   if (query.bbox) {
     const [minLng, minLat, maxLng, maxLat] = query.bbox;
     conds.push(
-      sql`${spots.lat} between ${Math.min(minLat, maxLat)} and ${Math.max(minLat, maxLat)}`,
+      sql`${spots.lat} between ${Math.min(minLat, maxLat)} and ${Math.max(minLat, maxLat)}`
     );
     conds.push(
-      sql`${spots.lng} between ${Math.min(minLng, maxLng)} and ${Math.max(minLng, maxLng)}`,
+      sql`${spots.lng} between ${Math.min(minLng, maxLng)} and ${Math.max(minLng, maxLng)}`
     );
   }
   if (query.genre?.length) {
@@ -367,7 +343,7 @@ function buildConditions(query: SpotQuery): SQL[] {
       ilike(spots.kana, like),
       ilike(spots.address, like),
       ilike(spots.city, like),
-      ilike(spots.prefecture, like),
+      ilike(spots.prefecture, like)
     );
     if (orCond) conds.push(orCond);
   }
@@ -403,11 +379,7 @@ export async function getSpot(spotcd: number): Promise<SpotFeature | null> {
     return getSpotFromGeoJson(spotcd);
   }
   await ensureSeeded();
-  const [row] = await db
-    .select()
-    .from(spots)
-    .where(eq(spots.spotcd, spotcd))
-    .limit(1);
+  const [row] = await db.select().from(spots).where(eq(spots.spotcd, spotcd)).limit(1);
   return row ? rowToFeature(row) : null;
 }
 
@@ -415,7 +387,7 @@ export async function getNearby(
   spotcd: number,
   lat: number,
   lng: number,
-  limit = 4,
+  limit = 4
 ): Promise<SpotFeature[]> {
   if (!isDbConfigured) {
     return getNearbyFromGeoJson(spotcd, lat, lng, limit);
@@ -425,7 +397,7 @@ export async function getNearby(
     .from(spots)
     .where(sql`${spots.spotcd} <> ${spotcd}`)
     .orderBy(
-      sql`((${spots.lat} - ${lat}) * (${spots.lat} - ${lat}) + (${spots.lng} - ${lng}) * (${spots.lng} - ${lng}))`,
+      sql`((${spots.lat} - ${lat}) * (${spots.lat} - ${lat}) + (${spots.lng} - ${lng}) * (${spots.lng} - ${lng}))`
     )
     .limit(limit);
   return rows.map(rowToFeature);

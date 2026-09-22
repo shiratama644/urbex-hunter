@@ -3,10 +3,7 @@ import { getNearby, getSpot } from "@/lib/spots-repo";
 
 export const revalidate = 86400;
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const spotcd = Number(id);
   if (!Number.isInteger(spotcd)) {
@@ -15,10 +12,7 @@ export async function GET(
   try {
     const feature = await getSpot(spotcd);
     if (!feature) {
-      return NextResponse.json(
-        { error: "スポットが見つかりません" },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: "スポットが見つかりません" }, { status: 404 });
     }
     const [lng, lat] = feature.geometry.coordinates;
     const nearby = await getNearby(spotcd, lat, lng, 4);
@@ -26,10 +20,9 @@ export async function GET(
       { ...feature, nearby },
       {
         headers: {
-          "Cache-Control":
-            "public, s-maxage=86400, stale-while-revalidate=604800",
+          "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
         },
-      },
+      }
     );
   } catch (error) {
     console.error("[/api/spots/:id]", error);

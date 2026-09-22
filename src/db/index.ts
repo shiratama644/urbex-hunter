@@ -20,13 +20,12 @@ if (isDbConfigured) {
   pool =
     globalForDb.__urbexHunterPool ??
     new Pool({
-      connectionString: databaseUrl!,
+      connectionString: databaseUrl as string,
     });
   if (process.env.NODE_ENV !== "production") {
     globalForDb.__urbexHunterPool = pool;
   }
-  dbInstance =
-    globalForDb.__urbexHunterDb ?? drizzle(pool);
+  dbInstance = globalForDb.__urbexHunterDb ?? drizzle(pool);
   if (process.env.NODE_ENV !== "production") {
     globalForDb.__urbexHunterDb = dbInstance;
   }
@@ -43,10 +42,10 @@ export const db: ReturnType<typeof drizzle> = dbInstance
       {
         get() {
           throw new Error(
-            "DATABASE_URL is not configured — use GeoJSON fallback (isDbConfigured === false)",
+            "DATABASE_URL is not configured — use GeoJSON fallback (isDbConfigured === false)"
           );
         },
-      },
+      }
     ) as ReturnType<typeof drizzle>);
 
 // 後方互換: 旧 `pool` エクスポート（存在しない場合は null）
