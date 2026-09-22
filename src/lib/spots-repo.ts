@@ -1,6 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { and, asc, desc, eq, gte, ilike, inArray, or, type SQL, sql } from "drizzle-orm";
+import { unstable_cache } from "next/cache";
 import { db, isDbConfigured } from "@/db";
 import { type NewSpotRow, type SpotRow, spots } from "@/db/schema";
 import type { SpotCollection, SpotFacets, SpotFeature, SpotProperties } from "@/lib/types";
@@ -14,10 +15,58 @@ type RawFeature = {
 
 let seedPromise: Promise<void> | null = null;
 
+// ---------- GeoJSON memoization (mtime + size) ----------
+let geoJsonCache: { mtimeMs: number; size: number; data: RawFeature[] } | null = null;
+
 async function readGeoJson(): Promise<RawFeature[]> {
+  const s = await stat(GEOJSON_PATH);
+  if (geoJsonCache && geoJsonCache.mtimeMs === s.mtimeMs && geoJsonCache.size === s.size) {
+    return geoJsonCache.data;
+  }
   const raw = await readFile(GEOJSON_PATH, "utf8");
   const parsed = JSON.parse(raw) as { features: RawFeature[] };
-  return parsed.features ?? [];
+  const data = parsed.features ?? [];
+  geoJsonCache = { mtimeMs: s.mtimeMs, size: s.size, data };
+  return data;
+}
+
+/** テスト用: キャッシュをクリア */
+export function __clearGeoJsonCache() {
+  geoJsonCache = null;
+}
+
+// ---------- helpers exported for testing ----------
+
+export function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+/**
+ * bbox を clamp + 正規化する
+ * 事実: 経度 -180..180 / 緯度 -90..90 に clamp し、逆転を正規化する（EM1-B）
+ */
+export function parseBbox(raw: string | null): [number, number, number, number] | undefined {
+  if (!raw) return undefined;
+  const parts = raw.split(",").map(Number);
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return undefined;
+  let [a, b, c, d] = parts;
+  if (a > c) [a, c] = [c, a];
+  if (b > d) [b, d] = [d, b];
+  return [clamp(a, -180, 180), clamp(b, -90, 90), clamp(c, -180, 180), clamp(d, -90, 90)];
+}
+
+export function clampLimit(raw: unknown, fallback = 1500): number {
+  const n = typeof raw === "string" ? Number(raw) : typeof raw === "number" ? raw : Number.NaN;
+  if (!Number.isFinite(n)) return fallback;
+  if (n <= 0) return fallback;
+  return Math.max(1, Math.min(3000, Math.trunc(n)));
+}
+
+export function clampQ(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const t = raw.trim();
+  if (!t) return undefined;
+  return t.slice(0, 100);
 }
 
 // ---------- GeoJSON fallback helpers (when DATABASE_URL is not set) ----------
@@ -30,7 +79,7 @@ function rawToFeature(f: RawFeature): SpotFeature {
   };
 }
 
-function filterGeoJson(features: RawFeature[], query: SpotQuery): RawFeature[] {
+export function filterGeoJson(features: RawFeature[], query: SpotQuery): RawFeature[] {
   return features.filter((f) => {
     const [lng, lat] = f.geometry.coordinates;
     const p = f.properties;
@@ -70,7 +119,7 @@ async function querySpotsFromGeoJson(query: SpotQuery): Promise<SpotCollection> 
     if (sb !== sa) return sb - sa;
     return a.properties.spotcd - b.properties.spotcd;
   });
-  const limit = Math.min(query.limit ?? 1500, 3000);
+  const limit = clampLimit(query.limit, 1500);
   const truncated = filtered.length > limit;
   const page = truncated ? filtered.slice(0, limit) : filtered;
   return {
@@ -355,7 +404,7 @@ export async function querySpots(query: SpotQuery): Promise<SpotCollection> {
     return querySpotsFromGeoJson(query);
   }
   await ensureSeeded();
-  const limit = Math.min(query.limit ?? 1500, 3000);
+  const limit = clampLimit(query.limit, 1500);
   const conds = buildConditions(query);
   const rows = await db
     .select()
@@ -403,7 +452,7 @@ export async function getNearby(
   return rows.map(rowToFeature);
 }
 
-export async function getFacets(): Promise<SpotFacets> {
+async function _getFacets(): Promise<SpotFacets> {
   if (!isDbConfigured) {
     return getFacetsFromGeoJson();
   }
@@ -442,3 +491,9 @@ export async function getFacets(): Promise<SpotFacets> {
     })),
   };
 }
+
+// 1時間 cache（事実: unstable_cache + tags + revalidate 3600 が推奨）[1](https://nextjs.org/docs/app/api-reference/functions/unstable_cache)
+export const getFacets: () => Promise<SpotFacets> = unstable_cache(_getFacets, ["urbex-facets"], {
+  tags: ["facets"],
+  revalidate: 3600,
+});

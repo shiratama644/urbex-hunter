@@ -4,7 +4,21 @@ import { getFacets, querySpots } from "@/lib/spots-repo";
 export const revalidate = 86400;
 
 export default async function Page() {
-  const [collection, facets] = await Promise.all([querySpots({ limit: 2000 }), getFacets()]);
+  const [spotsRes, facetsRes] = await Promise.allSettled([querySpots({ limit: 500 }), getFacets()]);
+
+  const collection =
+    spotsRes.status === "fulfilled"
+      ? spotsRes.value
+      : { type: "FeatureCollection" as const, count: 0, truncated: false, features: [] };
+
+  const facets =
+    facetsRes.status === "fulfilled"
+      ? facetsRes.value
+      : { total: 0, genres: [], prefectures: [], phenomena: [] };
+
+  // 失敗時はログしてフォールバック（500 にしない）
+  if (spotsRes.status === "rejected") console.error("[page] querySpots failed", spotsRes.reason);
+  if (facetsRes.status === "rejected") console.error("[page] getFacets failed", facetsRes.reason);
 
   return (
     <main className="h-dvh w-full">
