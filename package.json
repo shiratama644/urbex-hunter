@@ -10,6 +10,11 @@
     "leaflet",
     "drizzle"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shiratama644/urbex-hunter.git"
+  },
+  "homepage": "https://github.com/shiratama644/urbex-hunter#readme",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
