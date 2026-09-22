@@ -68,11 +68,11 @@ Next.js (App Router) + PostgreSQL(Drizzle) + Tailwind v4 (M3 Expressive) + Leafl
 
 | ID | タスク | 状態 | 進捗 | 依存 | 完了条件 | 監査ID | 証拠 |
 |---|---|---|---:|---|---|---|---|
-| EM1-A | パッケージ・設定の是正 | 未着手 | 0% | SETUP-5 | `package.json:name` が `urbex-hunter`、`next@16.3.5` / `drizzle.config.ts` / `images.remotePatterns` / `.env.example` / quality-gates 提案が存在し `npm audit` の critical が 0 | C1,C2,C3,C8,H13,H14,H20,M3,M4,M11 | `npm audit` / `next --version` |
-| EM1-B | API / DB / キャッシュの堅牢化 | 未着手 | 0% | EM1-A | `parseBbox` が clamp、`limit/q` が検証、`readGeoJson` がメモ化、`getFacets` が cache、`page.tsx` が `allSettled` + `error.tsx`、rate-limit 雛形 | C4,C5,H1,H2,H3,H4,H5,C7,H22,M5,M6 | `curl /api/spots?bbox=...` / `EXPLAIN` |
-| EM1-C | スクレイパーの堅牢化 | 未着手 | 0% | EM1-A | pool 競合解消、`count` 付与、ページネーション、`lat/lng` 3パターン、`th` 前方一致、`https` 化、`og:image` fallback、全角数字/改行保持 | C6,C7,H15,H16,H17,H19,M16,M17,M18 | `npm run scrape -- PREFS=13 LIMIT_PER_PREF=2` ログ |
-| EM1-D | 地図・UI/UXの磨き | 未着手 | 0% | EM1-B | bbox clamp（pad）、`openSpot` Abort、サジェスト外側クリック/ESC、cluster 差分更新、`limit` 既定縮小、`maximumScale` 修正、`RATINGS` 統一、`error/loading/not-found` / `sitemap/robots` / フィルタ永続化 | C10,H6,H7,H8,H9,H10,H11,H21,M1,M2,M7,M8,M12,M13,M14 | 手動操作 / Lighthouse a11y |
-| EM1-E | ドキュメント・仕様の整合 | 未着手 | 0% | EM1-A | `task-list` の SETUP-5 100% 化、`legal` と Dialog 文言一致、`ui.md`/`product.md` に 500/トークン/座標を明記 | L7,L9,H10,H13,M9,M13 | `docs/arch/*` diff |
+| EM1-A | パッケージ・設定の是正 | 完了 | 100% | SETUP-5 | `package.json:name` が `urbex-hunter`、`next@16.3.5` / `drizzle.config.ts` / `images.remotePatterns` / `.env.example` / quality-gates 提案が存在し `npm audit` の critical が 0 | C1,C2,C3,C8,H13,H14,H20,M3,M4,M11 | `npm audit` / `next --version` |
+| EM1-B | API / DB / キャッシュの堅牢化 | 完了 | 100% | EM1-A | `parseBbox` が clamp、`limit/q` が検証、`readGeoJson` がメモ化、`getFacets` が cache、`page.tsx` が `allSettled` + `error.tsx`、rate-limit 雛形 | C4,C5,H1,H2,H3,H4,H5,C7,H22,M5,M6 | `curl /api/spots?bbox=...` / `EXPLAIN` |
+| EM1-C | スクレイパーの堅牢化 | 完了 | 100% | EM1-A | pool 競合解消、`count` 付与、ページネーション、`lat/lng` 3パターン、`th` 前方一致、`https` 化、`og:image` fallback、全角数字/改行保持 | C6,C7,H15,H16,H17,H19,M16,M17,M18 | `npm run scrape -- PREFS=13 LIMIT_PER_PREF=2` ログ |
+| EM1-D | 地図・UI/UXの磨き | 完了 | 100% | EM1-B | bbox clamp（pad）、`openSpot` Abort、サジェスト外側クリック/ESC、cluster 差分更新、`limit` 既定縮小、`maximumScale` 修正、`RATINGS` 統一、`error/loading/not-found` / `sitemap/robots` / フィルタ永続化 | C10,H6,H7,H8,H9,H10,H11,H21,M1,M2,M7,M8,M12,M13,M14 | 手動操作 / Lighthouse a11y |
+| EM1-E | ドキュメント・仕様の整合 | 完了 | 100% | EM1-A | `task-list` の SETUP-5 100% 化、`legal` と Dialog 文言一致、`ui.md`/`product.md` に 500/トークン/座標を明記 | L7,L9,H10,H13,M9,M13 | `docs/arch/*` diff |
 | EM1-F | テスト・品質ゲートの土台 | 未着手 | 0% | EM1-B | `vitest` + `testing-library` 導入、`spots-repo` の `parseBbox/filterGeoJson` にユニットテスト、`npm run test` 追加、CI 提案 | M10,M11,H4 | `npm run test` |
 
 ### Phase 1 — 地図の堅牢化

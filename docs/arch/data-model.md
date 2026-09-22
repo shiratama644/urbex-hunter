@@ -35,7 +35,7 @@ export const spots = pgTable("spots", {
 
 - `spotcd` の重複は **upsert**（最新で上書き）。`drizzle-orm` の `onConflictDoUpdate` を使う。
 - `phenomena` / `features` は `text[]`。空配列 default。
-- index は `prefecture` / `genre` / `(lat,lng)`。追加は ADR で合意してから。
+- index は `prefecture` / `genre` / `(lat,lng)`。EM1-B で `readGeoJson` は `stat.mtimeMs+size` メモ化、`getFacets` は `unstable_cache` 1h で 4クエリを削減。将来は `pg_trgm`（`gin_trgm_ops`）や `phenomena` の GIN を ADR で検討。
 
 ## GeoJSON（補助的ソース・オブ・トゥルース: `data/spots.geojson`）
 
@@ -126,13 +126,19 @@ export type SpotFacets = {
 
 ## 設定
 
-`drizzle.config.json`:
-```json
-{
-  "dialect": "postgresql",
-  "schema": "./src/db/schema.ts",
-  "dbCredentials": { "url": "postgresql://postgres:postgres@127.0.0.1:5432/app_db" }
-}
+`drizzle.config.ts`（EM1-A で `drizzle.config.json` から移行）:
+```ts
+import { defineConfig } from "drizzle-kit";
+export default defineConfig({
+  dialect: "postgresql",
+  schema: "./src/db/schema.ts",
+  out: "./drizzle",
+  dbCredentials: { url: process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:5432/app_db" },
+});
 ```
 
-本番では `DATABASE_URL` 環境変数が `db/index.ts` で優先される。`drizzle-kit push` の接続先も同様に `DATABASE_URL` を使う。
+本番では `DATABASE_URL` 環境変数が `db/index.ts` と `drizzle.config.ts` で優先される。`drizzle-kit push` の接続先も同様に `DATABASE_URL` を使う。
+
+## GeoJSON の必須フィールド（EM1-C）
+
+`data/spots.geojson` は `count`（features.length）と `generatedAt`（ISO8601）と `source`（BASE）を必ず含む。監査で `count` が欠落していたため EM1-C で修正。

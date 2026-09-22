@@ -74,15 +74,15 @@ GhostMapApp (Client, 状態親)
 | `FilterPanel` | ジャンル/都道府県/怖さの選択 UI（`facets` から生成） | API 直接呼び出し |
 | `DisclaimerDialog` | 初回同意の表示・LocalStorage 永続化 | 同意をスキップ可能にする |
 
-`fearTone()` / `genreEmoji()` は `src/lib/types.ts` が正本。色閾値の変更は `globals.css` のパレットと合わせて行う。
+`fearTone()` / `genreEmoji()` は `src/lib/types.ts` が正本。色閾値は `fearTone` の 3.0/3.6/4.2 と `FilterPanel.RATINGS` の `[0,3,3.6,4.2]` で統一（EM1-D）。変更は `globals.css` のパレットと合わせて行う。`FilterPanel` は ESC で閉じ、`GhostMapApp` のサジェストは外側 mousedown + ESC + `role=listbox` で a11y 対応（EM1-D）。
 
 ## Leaflet 詳細
 
 - **タイル**: `https://{s}.basemaps.cartocdn.com/{dark_all|light_all}/{z}/{x}/{y}{r}.png`
   - `dark` = Dark Matter、`light` = Positron。`tile` state で切り替える。
 - **初期表示**: 日本全域が見える zoom 5 相当。`flyTo` は `flyTarget`（lat/lng/zoom/key）で制御する。
-- **bbox 絞り込み**: `bbox && zoom >= 8` の時のみ `GET /api/spots?bbox=...` を送る。pad 0.15 で拡張。広域での無駄な絞り込みを避ける。
-- **クラスタ**: `leaflet.markercluster`。クラスタバブルは Expressive な円形。個別ピンは `fearRating` の `fearTone` で色分けする。
+- **bbox 絞り込み**: `bbox && zoom >= 8` の時のみ `GET /api/spots?bbox=...` を送る。pad 0.15 で拡張し `-180..180`/`-90..90` に clamp（EM1-D）。広域での無駄な絞り込み・範囲超過を避ける。
+- **クラスタ**: `leaflet.markercluster`（`chunkedLoading: true` + `chunkInterval: 100` / `chunkDelay: 50`）。クラスタバブルは Expressive な円形。個別ピンは `fearRating` の `fearTone`（閾値 3.0/3.6/4.2）で色分け。差分更新（clearLayers 全再構築ではなく added/removed のみ addLayers/removeLayer）で 1500 件の jank を緩和（EM1-D）。
 - **SSR 禁止**: `dynamic(() => import("@/components/Map/MapClient"), { ssr:false })`。忘れると `window is not defined`。
 - **CSS**: `leaflet/dist/leaflet.css` と `leaflet.markercluster/dist/MarkerCluster.css` を `MapClient` で import する。
 
@@ -94,5 +94,7 @@ GhostMapApp (Client, 状態親)
 ## アクセシビリティ
 
 - `page.tsx` の `sr-only` h1 を維持する。
-- `FilterPanel` / `SpotDetailSheet` のフォーカス管理・ESC で閉じる・`aria-label` を維持する。
-- `DisclaimerDialog` は同意するまで地図操作をブロックする。
+- `FilterPanel` / `SpotDetailSheet` のフォーカス管理・ESC で閉じる・`aria-label` を維持する。`FilterPanel` は `role=dialog` + `aria-modal` + ESC + フォーカス移動（EM1-D）、`GhostMapApp` のサジェストは `combobox` + `listbox`/`option` + 外側 click + ESC（EM1-D）。
+- `globals.css` に `:focus-visible { outline: 3px solid var(--color-m3-primary); outline-offset: 2px; }` を定義し WCAG 2.4.7（Focus Visible）を満たす（EM1-D）。
+- `DisclaimerDialog` は同意するまで地図操作をブロックする。フッターの「免責を再表示」で再オープン可能（EM1-D）。
+- `layout.tsx` は `maximumScale:1` を除去しピンチズームを許可（WCAG 1.4.4）。
