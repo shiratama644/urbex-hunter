@@ -26,6 +26,9 @@
     "check:fix": "biome check --write .",
     "ci": "biome ci .",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "scrape": "tsx scripts/scrape.ts",
     "seed": "tsx scripts/seed.ts"
   },
@@ -49,13 +52,18 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
     "@tailwindcss/postcss": "4.1.17",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "22.19.15",
     "@types/pg": "8.18.0",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "^6.1.1",
     "drizzle-kit": "0.31.11",
+    "jsdom": "^30.1.0",
     "postcss": "8.5.28",
     "tailwindcss": "4.1.17",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^5.0.1"
   }
 }
