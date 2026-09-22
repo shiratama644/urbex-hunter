@@ -1,0 +1,60 @@
+name: Weekly Ghost Spot Scrape
+
+on:
+  schedule:
+    # 毎週月曜 03:15 JST (= 日曜 18:15 UTC)
+    - cron: "15 18 * * 0"
+  workflow_dispatch:
+    inputs:
+      limit_per_pref:
+        description: "1都道府県あたりの取得件数"
+        required: false
+        default: "16"
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Scrape 全国心霊マップ
+        env:
+          LIMIT_PER_PREF: ${{ github.event.inputs.limit_per_pref || '16' }}
+          CONCURRENCY: "6"
+        run: npx tsx scripts/scrape.ts
+
+      - name: Show diff stats
+        run: |
+          node -e "const d=require('fs').readFileSync('data/spots.geojson','utf8');const j=JSON.parse(d);console.log('features:',j.features.length)"
+          git diff --stat
+
+      - name: Commit updated dataset
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [[ -n "$(git status --porcelain data/spots.geojson)" ]]; then
+            git add data/spots.geojson
+            git commit -m "chore(data): weekly refresh of ghost spot dataset"
+            git push
+          else
+            echo "No dataset changes."
+          fi
+
+      # 本番 DB へ反映（DATABASE_URL secret が設定されている場合のみ）
+      - name: Sync dataset into database
+        if: ${{ env.DATABASE_URL != '' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npx tsx scripts/seed.ts
