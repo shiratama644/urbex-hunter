@@ -2,9 +2,9 @@
  * 全国心霊マップ (https://ghostmap.jp/) スクレイパー
  * ------------------------------------------------------------
  * 使い方:
- *   npx tsx scripts/scrape.ts                # 全都道府県 / 1県あたり既定件数
- *   LIMIT_PER_PREF=5 npx tsx scripts/scrape.ts
- *   PREFS=13,27 npx tsx scripts/scrape.ts
+ *   pnpm exec tsx scripts/scrape.ts                # 全都道府県 / 1県あたり既定件数
+ *   LIMIT_PER_PREF=5 pnpm exec tsx scripts/scrape.ts
+ *   PREFS=13,27 pnpm exec tsx scripts/scrape.ts
  *
  * 出力: data/spots.geojson (FeatureCollection)
  *
@@ -98,7 +98,9 @@ export type SpotFeature = {
 
 const num = (raw?: string | null): number | null => {
   if (!raw) return null;
-  const cleaned = raw.replace(/[,，\s]/g, "").match(/-?\d+(\.\d+)?/);
+  // 全角数字を半角に
+  const half = raw.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+  const cleaned = half.replace(/[,，\s]/g, "").match(/-?\d+(\.\d+)?/);
   return cleaned ? Number(cleaned[0]) : null;
 };
 
@@ -107,6 +109,19 @@ const clean = (raw?: string | null): string | null => {
   const t = raw
     .replace(/\u3000/g, " ")
     .replace(/\s+/g, " ")
+    .trim();
+  return t.length ? t : null;
+};
+
+const cleanMultiline = (raw?: string | null): string | null => {
+  if (!raw) return null;
+  const t = raw
+    .replace(/\u3000/g, " ")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => line.length > 0)
+    .join("\n")
     .trim();
   return t.length ? t : null;
 };
@@ -131,15 +146,23 @@ async function fetchHtml(url: string, retries = 2): Promise<string | null> {
   return null;
 }
 
-/** 都道府県一覧ページから spotcd を抽出 */
+/** 都道府県一覧ページから spotcd を抽出（ページネーション対応） */
 export async function listSpotIds(precd: number): Promise<number[]> {
-  const html = await fetchHtml(`${BASE}/spotlist.php?precd=${precd}`);
-  if (!html) return [];
-  const ids = new Set<number>();
-  for (const m of html.matchAll(/spotdetail\.php\?spotcd=(\d+)/g)) {
-    ids.add(Number(m[1]));
+  const all = new Set<number>();
+  for (let p = 1; p <= 30; p++) {
+    const url =
+      p === 1
+        ? `${BASE}/spotlist.php?precd=${precd}`
+        : `${BASE}/spotlist.php?precd=${precd}&p=${p}`;
+    const html = await fetchHtml(url);
+    if (!html) break;
+    const ids = [...html.matchAll(/spotdetail\.php\?spotcd=(\d+)/g)].map((m) => Number(m[1]));
+    if (ids.length === 0) break;
+    for (const id of ids) all.add(id);
+    // 1ページ16件想定、未満なら最終ページ
+    if (ids.length < 16) break;
   }
-  return [...ids];
+  return [...all];
 }
 
 /** 詳細ページ HTML をパース */
@@ -149,7 +172,7 @@ export function parseSpot(html: string, spotcd: number): SpotFeature | null {
   const name = clean($("#sub_title_h1 p").first().text());
   if (!name) return null;
 
-  // 緯度経度: 「Googleマップを開く」リンクのクエリから正規表現で抽出
+  // 緯度経度: 3パターンで抽出（事実ベースの堅牢化）
   let lat: number | null = null;
   let lng: number | null = null;
   const gmap = html.match(/maps\?q=(-?\d+\.\d+),(-?\d+\.\d+)/);
@@ -162,27 +185,39 @@ export function parseSpot(html: string, spotcd: number): SpotFeature | null {
     if (jsonLat && jsonLng) {
       lat = Number(jsonLat[1]);
       lng = Number(jsonLng[1]);
+    } else {
+      // 3パターン目: data-lat / data-lng 属性（将来の HTML 構造変更対応）
+      const dataLat = html.match(/data-lat=["'](-?\d+\.\d+)["']/);
+      const dataLng = html.match(/data-lng=["'](-?\d+\.\d+)["']/);
+      if (dataLat && dataLng) {
+        lat = Number(dataLat[1]);
+        lng = Number(dataLng[1]);
+      }
     }
   }
   if (lat === null || lng === null || Number.isNaN(lat) || Number.isNaN(lng)) {
     return null;
   }
 
-  // 概要テーブル (th ラベル -> td)
+  // 概要テーブル (th ラベル -> td) — th は前方一致で取得（EM1-C）
   const table: Record<string, string> = {};
   $("table.table_outline tr").each((_, tr) => {
     const th = clean($(tr).find("th").first().text());
     const tdEl = $(tr).find("td").first();
     if (!th) return;
     tdEl.find("a,input,img,script").remove();
-    const td = clean(tdEl.text());
+    const td = cleanMultiline(tdEl.text());
     if (td) table[th] = td;
   });
+  const tableGet = (prefix: string): string | null => {
+    const entry = Object.entries(table).find(([k]) => k.startsWith(prefix));
+    return entry ? entry[1] : null;
+  };
 
   // 住所（Googleマップを開く等のリンク文言は除去済み）
   const addrEl = $("#table_outline_map").clone();
   addrEl.find("a,br,img,input").remove();
-  const address = clean(addrEl.text()) ?? table["住所"] ?? null;
+  const address = clean(addrEl.text()) ?? tableGet("住所") ?? null;
 
   // パンくずから都道府県 / 市区町村
   const crumbs = $(".pankz_list_item a")
@@ -220,21 +255,36 @@ export function parseSpot(html: string, spotcd: number): SpotFeature | null {
 
   const genre =
     (tagGroups["ジャンル"] ?? []).find((g) => !/地方|[都道府県]の/.test(g)) ??
-    table["ジャンル"] ??
+    tableGet("ジャンル") ??
     null;
 
+  // 画像: outline_image → og:image fallback → https 強制
+  let imageUrl: string | null = null;
   const image = $("#outline_image img").attr("src");
-  const imageUrl = image ? new URL(image.replace(/^\.\.\//, "/"), BASE).toString() : null;
+  if (image) {
+    imageUrl = new URL(image.replace(/^\.\.\//, "/"), BASE).toString();
+  } else {
+    const og = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/);
+    if (og) {
+      const ogUrl = og[1];
+      try {
+        imageUrl = new URL(ogUrl, BASE).toString();
+      } catch {
+        imageUrl = ogUrl;
+      }
+    }
+  }
+  if (imageUrl) imageUrl = imageUrl.replace(/^http:/, "https:");
 
   const properties: SpotProps = {
     spotcd,
     name,
-    kana: table["読み方"] ?? null,
+    kana: tableGet("読み方") ?? null,
     address,
     prefecture,
     city,
     genre,
-    status: table["状態"] ?? null,
+    status: tableGet("状態") ?? null,
     phenomena: tagGroups["心霊現象"] ?? [],
     features: (tagGroups["特徴"] ?? []).filter((f) => !/地方/.test(f)),
     totalScore: headValue("総合得点"),
@@ -242,8 +292,8 @@ export function parseSpot(html: string, spotcd: number): SpotFeature | null {
     prefRank: headValue("県別ランク"),
     fearRating: num($("#eval_point").first().text()),
     ratingCount: num($("#eval_row").first().text()) ?? headValue("評価人数"),
-    outline: clean($("#outline_spot").text()),
-    comment: table["コメント"] ?? null,
+    outline: cleanMultiline($("#outline_spot").text()),
+    comment: tableGet("コメント") ?? null,
     imageUrl,
     sourceUrl: `${BASE}/spotdetail.php?spotcd=${spotcd}`,
   };
@@ -267,12 +317,13 @@ export async function scrapeSpot(spotcd: number): Promise<SpotFeature | null> {
 }
 
 async function pool<T, R>(items: T[], size: number, worker: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = [];
-  let cursor = 0;
-  const runners = Array.from({ length: Math.min(size, items.length) }, async () => {
-    while (cursor < items.length) {
-      const idx = cursor++;
-      out[idx] = await worker(items[idx]);
+  const queue = items.map((item, idx) => ({ item, idx }));
+  const out: R[] = new Array(items.length) as R[];
+  const runners = Array.from({ length: Math.min(size, queue.length) }, async () => {
+    while (queue.length) {
+      const cur = queue.shift();
+      if (!cur) break;
+      out[cur.idx] = await worker(cur.item);
     }
   });
   await Promise.all(runners);
@@ -281,7 +332,7 @@ async function pool<T, R>(items: T[], size: number, worker: (item: T) => Promise
 
 async function main() {
   const limitPerPref = Number(process.env.LIMIT_PER_PREF ?? 16);
-  const concurrency = Number(process.env.CONCURRENCY ?? 8);
+  const concurrency = Number(process.env.CONCURRENCY ?? 6);
   const only = process.env.PREFS?.split(",").map(Number).filter(Boolean);
   const targets = only ? PREFECTURES.filter((p) => only.includes(p.code)) : PREFECTURES;
 
@@ -321,6 +372,7 @@ async function main() {
     JSON.stringify(
       {
         type: "FeatureCollection",
+        count: features.length,
         generatedAt: new Date().toISOString(),
         source: BASE,
         features,
