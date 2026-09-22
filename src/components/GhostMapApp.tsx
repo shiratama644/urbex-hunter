@@ -36,6 +36,15 @@ type Props = {
   facets: SpotFacets;
 };
 
+function clampBbox(b: Bbox): Bbox {
+  return [
+    Math.max(-180, Math.min(180, b[0])),
+    Math.max(-90, Math.min(90, b[1])),
+    Math.max(-180, Math.min(180, b[2])),
+    Math.max(-90, Math.min(90, b[3])),
+  ];
+}
+
 export default function GhostMapApp({ initialSpots, facets }: Props) {
   const [spots, setSpots] = useState<SpotFeature[]>(initialSpots);
   const [loadingSpots, setLoadingSpots] = useState(false);
@@ -66,8 +75,51 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
   } | null>(null);
 
   const fetchIdRef = useRef(0);
+  const suggestRef = useRef<HTMLDivElement>(null);
+  const detailAbortRef = useRef<AbortController | null>(null);
 
   const topGenres = useMemo(() => facets.genres.slice(0, 12), [facets.genres]);
+
+  /* ---------------- フィルタ永続化（URLクエリ） ---------------- */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const g = params.get("genre");
+    const p = params.get("pref");
+    const r = params.get("min_rating");
+    if (g) setGenres(g.split(",").filter(Boolean));
+    if (p) setPrefs(p.split(",").filter(Boolean));
+    if (r) {
+      const n = Number(r);
+      if (Number.isFinite(n)) setMinRating(n);
+    }
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (genres.length) params.set("genre", genres.join(","));
+    if (prefs.length) params.set("pref", prefs.join(","));
+    if (minRating > 0) params.set("min_rating", String(minRating));
+    const qs = params.toString();
+    const url = qs ? `?${qs}` : window.location.pathname;
+    window.history.replaceState(null, "", url);
+  }, [genres, prefs, minRating]);
+
+  /* ---------------- サジェスト外側クリック / ESC ---------------- */
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (!suggestRef.current) return;
+      if (!suggestRef.current.contains(e.target as Node)) setSuggestOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSuggestOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
 
   /* ---------------- スポット取得 (bbox / フィルタ) ---------------- */
   useEffect(() => {
@@ -83,17 +135,20 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
         const pad = 0.15;
         const w = bbox[2] - bbox[0];
         const h = bbox[3] - bbox[1];
-        params.set(
-          "bbox",
-          [bbox[0] - w * pad, bbox[1] - h * pad, bbox[2] + w * pad, bbox[3] + h * pad]
-            .map((n) => n.toFixed(5))
-            .join(",")
-        );
+        const padded: Bbox = [
+          bbox[0] - w * pad,
+          bbox[1] - h * pad,
+          bbox[2] + w * pad,
+          bbox[3] + h * pad,
+        ];
+        const clamped = clampBbox(padded);
+        params.set("bbox", clamped.map((n) => n.toFixed(5)).join(","));
       }
       setLoadingSpots(true);
       try {
         const res = await fetch(`/api/spots?${params.toString()}`, {
           signal: controller.signal,
+          cache: "no-store",
         });
         const data = (await res.json()) as SpotCollection;
         if (id === fetchIdRef.current) setSpots(data.features ?? []);
@@ -122,6 +177,7 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
       try {
         const res = await fetch(`/api/spots?q=${encodeURIComponent(q)}&limit=8`, {
           signal: controller.signal,
+          cache: "no-store",
         });
         const data = (await res.json()) as SpotCollection;
         setSuggestions(data.features ?? []);
@@ -135,8 +191,11 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
     };
   }, [query]);
 
-  /* ---------------- 詳細取得 ---------------- */
+  /* ---------------- 詳細取得（Abort対応） ---------------- */
   const openSpot = useCallback(async (spot: SpotFeature, fly = false) => {
+    detailAbortRef.current?.abort();
+    const ac = new AbortController();
+    detailAbortRef.current = ac;
     setSelected(spot);
     setNearby([]);
     setDetailLoading(true);
@@ -146,7 +205,9 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
       setFlyTarget({ lat, lng, zoom: 15, key: Date.now() });
     }
     try {
-      const res = await fetch(`/api/spots/${spot.properties.spotcd}`);
+      const res = await fetch(`/api/spots/${spot.properties.spotcd}`, {
+        signal: ac.signal,
+      });
       if (res.ok) {
         const data = (await res.json()) as SpotFeature & {
           nearby: SpotFeature[];
@@ -159,9 +220,9 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
         setNearby(data.nearby ?? []);
       }
     } catch {
-      /* noop */
+      /* aborted or network error */
     } finally {
-      setDetailLoading(false);
+      if (detailAbortRef.current === ac) setDetailLoading(false);
     }
   }, []);
 
@@ -206,7 +267,10 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
 
       {/* ---------------- トップバー ---------------- */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[1100] flex flex-col gap-2.5 p-3 md:p-4">
-        <div className="pointer-events-auto mx-auto flex w-full max-w-2xl flex-col">
+        <div
+          ref={suggestRef}
+          className="pointer-events-auto mx-auto flex w-full max-w-2xl flex-col"
+        >
           {/* M3 Search Bar */}
           <div
             className={`flex items-center gap-2 border border-m3-outline-variant/40 bg-m3-surface-container-high/92 px-4 shadow-m3-3 backdrop-blur-xl transition-all duration-300 ${
@@ -223,9 +287,16 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
                 setSuggestOpen(true);
               }}
               onFocus={() => setSuggestOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setSuggestOpen(false);
+              }}
               placeholder="心霊スポット名・住所で検索"
               className="min-w-0 flex-1 bg-transparent py-3.5 text-body-lg text-m3-on-surface placeholder:text-m3-on-surface-variant/70 focus:outline-none"
               aria-label="スポット検索"
+              aria-expanded={suggestOpen && suggestions.length > 0}
+              aria-controls="ghost-suggest-list"
+              role="combobox"
+              aria-autocomplete="list"
             />
             {query ? (
               <button
@@ -247,13 +318,16 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
           <AnimatePresence>
             {suggestOpen && suggestions.length ? (
               <motion.ul
+                id="ghost-suggest-list"
+                role="listbox"
                 initial={{ opacity: 0, y: -8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 className="thin-scrollbar max-h-[46dvh] overflow-y-auto rounded-b-m3-xl border border-t-0 border-m3-outline-variant/40 bg-m3-surface-container-high/96 shadow-m3-3 backdrop-blur-xl"
               >
                 {suggestions.map((s) => (
-                  <li key={s.properties.spotcd}>
+                  // biome-ignore lint: listbox > li[role=option] pattern
+                  <li key={s.properties.spotcd} role="option" aria-selected={false}>
                     <button
                       type="button"
                       onClick={() => openSpot(s, true)}
@@ -284,6 +358,8 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
           <button
             type="button"
             onClick={() => setFilterOpen(true)}
+            aria-expanded={filterOpen}
+            aria-controls="filter-panel"
             className={`flex shrink-0 items-center gap-1.5 rounded-m3-full border px-3.5 py-2 text-label-lg shadow-m3-1 backdrop-blur-xl transition active:scale-95 ${
               activeFilterCount
                 ? "border-transparent bg-m3-primary text-m3-on-primary"
@@ -404,6 +480,22 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
       />
 
       <DisclaimerDialog />
+
+      {/* 免責再表示（フッター） */}
+      <div className="pointer-events-none absolute bottom-2 left-3 z-[1100] md:bottom-3">
+        <button
+          type="button"
+          onClick={() => {
+            try {
+              localStorage.removeItem("ghostmap:disclaimer:v1");
+            } catch {}
+            window.location.reload();
+          }}
+          className="pointer-events-auto rounded-m3-full bg-m3-surface-container-high/80 px-3 py-1.5 text-label-sm text-m3-on-surface-variant backdrop-blur transition hover:bg-m3-surface-container-high"
+        >
+          免責を再表示
+        </button>
+      </div>
     </div>
   );
 }

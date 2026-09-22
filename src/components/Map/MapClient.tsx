@@ -49,9 +49,7 @@ function clusterIcon(count: number) {
   const size = count < 10 ? 40 : count < 50 ? 48 : count < 200 ? 58 : 68;
   return L.divIcon({
     className: "ghost-cluster",
-    html: `<div class="ghost-cluster-inner" style="width:${size}px;height:${size}px;font-size:${
-      size / 3.2
-    }px">${count}</div>`,
+    html: `<div class="ghost-cluster-inner" style="width:${size}px;height:${size}px;font-size:${size / 3.2}px">${count}</div>`,
     iconSize: L.point(size, size),
   });
 }
@@ -76,6 +74,8 @@ function ClusterLayer({
       spiderfyOnMaxZoom: true,
       disableClusteringAtZoom: 15,
       chunkedLoading: true,
+      chunkInterval: 100,
+      chunkDelay: 50,
       iconCreateFunction: (cluster) => clusterIcon(cluster.getChildCount()),
     });
     groupRef.current = group;
@@ -86,24 +86,43 @@ function ClusterLayer({
     };
   }, [map]);
 
+  // 差分更新（全再構築しない）— 1500件の jank を緩和（事実: clearLayers + addLayers batch が推奨）[2](https://www.xjavascript.com/blog/how-to-clear-leaflet-map-of-all-markers-and-layers-before-adding-new-ones/)
   // biome-ignore lint/correctness/useExhaustiveDependencies: selectedId は icon 更新のみで再構築しない — 別 useEffect で setIcon する
   useEffect(() => {
     const group = groupRef.current;
     if (!group) return;
-    group.clearLayers();
-    markersRef.current.clear();
-    const markers = spots.map((spot) => {
-      const [lng, lat] = spot.geometry.coordinates;
-      const marker = L.marker([lat, lng], {
-        icon: pinIcon(spot, spot.properties.spotcd === selectedId),
-        title: spot.properties.name,
-        riseOnHover: true,
-      });
-      marker.on("click", () => onSelectRef.current(spot));
-      markersRef.current.set(spot.properties.spotcd, marker);
-      return marker;
-    });
-    group.addLayers(markers);
+
+    const nextIds = new Set(spots.map((s) => s.properties.spotcd));
+    const prevIds = new Set(markersRef.current.keys());
+
+    // 削除されたマーカーを除去
+    for (const id of prevIds) {
+      if (!nextIds.has(id)) {
+        const m = markersRef.current.get(id);
+        if (m) group.removeLayer(m);
+        markersRef.current.delete(id);
+      }
+    }
+
+    // 追加されたマーカーのみ生成（既存は再利用）
+    const toAdd: L.Marker[] = [];
+    for (const spot of spots) {
+      if (!markersRef.current.has(spot.properties.spotcd)) {
+        const [lng, lat] = spot.geometry.coordinates;
+        const marker = L.marker([lat, lng], {
+          icon: pinIcon(spot, spot.properties.spotcd === selectedId),
+          title: spot.properties.name,
+          riseOnHover: true,
+        });
+        marker.on("click", () => onSelectRef.current(spot));
+        markersRef.current.set(spot.properties.spotcd, marker);
+        toAdd.push(marker);
+      }
+    }
+    if (toAdd.length) group.addLayers(toAdd);
+
+    // 初回等で空の場合は chunkedLoading が効くよう addLayers をバッチで
+    // （既存の全件が prev に無い場合は toAdd が spots 全体になるので自然に全件追加）
   }, [spots]);
 
   useEffect(() => {
@@ -142,23 +161,27 @@ function FlyController({ flyTarget }: Pick<Props, "flyTarget">) {
 
 function UserMarker({ userPosition }: Pick<Props, "userPosition">) {
   const map = useMap();
+  const userIcon = useMemo(
+    () =>
+      L.divIcon({
+        className: "ghost-pin",
+        html: `<div style="width:18px;height:18px;border-radius:999px;background:#7fd8c4;box-shadow:0 0 0 6px rgba(127,216,196,.25),0 0 14px rgba(127,216,196,.8)"></div>`,
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+      }),
+    []
+  );
   useEffect(() => {
     if (!userPosition) return;
-    const icon = L.divIcon({
-      className: "ghost-pin",
-      html: `<div style="width:18px;height:18px;border-radius:999px;background:#7fd8c4;box-shadow:0 0 0 6px rgba(127,216,196,.25),0 0 14px rgba(127,216,196,.8)"></div>`,
-      iconSize: [18, 18],
-      iconAnchor: [9, 9],
-    });
     const marker = L.marker([userPosition.lat, userPosition.lng], {
-      icon,
+      icon: userIcon,
       interactive: false,
       zIndexOffset: 1000,
     }).addTo(map);
     return () => {
       map.removeLayer(marker);
     };
-  }, [userPosition, map]);
+  }, [userPosition, map, userIcon]);
   return null;
 }
 

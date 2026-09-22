@@ -99,9 +99,9 @@ export default function SpotDetailSheet({ spot, nearby, loading, onClose, onSele
       transition={{ type: "spring", stiffness: 380, damping: 36, mass: 0.9 }}
       drag="y"
       dragConstraints={{ top: 0, bottom: 0 }}
-      dragElastic={{ top: 0, bottom: 0.4 }}
+      dragElastic={{ top: 0, bottom: 0.2 }}
       onDragEnd={(_, info) => {
-        if (info.offset.y > 120 || info.velocity.y > 600) onClose();
+        if (info.offset.y > 120 || info.velocity.y > 800) onClose();
       }}
       className="pointer-events-auto fixed inset-x-0 bottom-0 z-[1200] max-h-[82dvh] overflow-hidden rounded-t-m3-xxl border border-b-0 border-m3-outline-variant/40 bg-m3-surface-container-high/95 shadow-m3-5 backdrop-blur-xl md:inset-y-0 md:right-auto md:left-0 md:max-h-none md:w-[420px] md:rounded-t-none md:rounded-r-m3-xxl md:border-l-0"
     >
@@ -146,15 +146,15 @@ export default function SpotDetailSheet({ spot, nearby, loading, onClose, onSele
 
         <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-32 md:pb-6">
           {p.imageUrl ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={p.imageUrl}
-              alt={p.name}
+              alt={`${p.name}の画像`}
               loading="lazy"
-              referrerPolicy="no-referrer"
+              referrerPolicy="strict-origin-when-cross-origin"
               className="mb-4 h-44 w-full rounded-m3-xl object-cover shadow-m3-1"
               onError={(e) => {
                 e.currentTarget.style.display = "none";
+                e.currentTarget.setAttribute("aria-hidden", "true");
               }}
             />
           ) : null}

@@ -200,6 +200,16 @@ body {
   border-radius: 999px;
 }
 
+/* ---------- Focus visible (WCAG 2.4.7 / 2.4.11) — 3px outline + offset ---------- */
+:focus-visible {
+  outline: 3px solid var(--color-m3-primary);
+  outline-offset: 2px;
+}
+.ghost-pin:focus-visible .ghost-pin-inner {
+  outline: 3px solid var(--color-m3-primary);
+  outline-offset: 2px;
+}
+
 @keyframes m3-fade-up {
   from {
     opacity: 0;

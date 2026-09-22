@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { RotateCcw, X } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { genreEmoji, type SpotFacets } from "@/lib/types";
 
 type Props = {
@@ -17,7 +18,7 @@ type Props = {
   onReset: () => void;
 };
 
-const RATINGS = [0, 3, 3.5, 4, 4.3];
+const RATINGS = [0, 3, 3.6, 4.2];
 
 export default function FilterPanel({
   open,
@@ -31,6 +32,19 @@ export default function FilterPanel({
   onMinRating,
   onReset,
 }: Props) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    // フォーカスをパネル内に移動（WCAG 2.4.3）
+    panelRef.current?.focus();
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
   return (
     <AnimatePresence>
       {open ? (
@@ -45,17 +59,25 @@ export default function FilterPanel({
             className="fixed inset-0 z-[1400] cursor-default bg-m3-scrim/50 backdrop-blur-[2px]"
           />
           <motion.div
+            ref={panelRef}
+            id="filter-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="filter-title"
+            tabIndex={-1}
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", stiffness: 340, damping: 32 }}
-            className="fixed inset-x-0 bottom-0 z-[1500] max-h-[80dvh] overflow-hidden rounded-t-m3-xxl border border-b-0 border-m3-outline-variant/40 bg-m3-surface-container-high shadow-m3-5 md:inset-x-auto md:right-0 md:bottom-0 md:top-0 md:max-h-none md:w-[400px] md:rounded-t-none md:rounded-l-m3-xxl"
+            className="fixed inset-x-0 bottom-0 z-[1500] max-h-[80dvh] overflow-hidden rounded-t-m3-xxl border border-b-0 border-m3-outline-variant/40 bg-m3-surface-container-high shadow-m3-5 md:inset-x-auto md:right-0 md:bottom-0 md:top-0 md:max-h-none md:w-[400px] md:rounded-t-none md:rounded-l-m3-xxl focus:outline-none"
           >
             <div className="flex justify-center pt-2.5 md:hidden">
               <div className="h-1 w-10 rounded-full bg-m3-outline-variant" />
             </div>
             <header className="flex items-center justify-between px-5 pt-3 pb-1">
-              <h2 className="text-title-lg font-semibold text-m3-on-surface">絞り込み</h2>
+              <h2 id="filter-title" className="text-title-lg font-semibold text-m3-on-surface">
+                絞り込み
+              </h2>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
