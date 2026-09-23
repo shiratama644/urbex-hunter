@@ -35,25 +35,8 @@ export function __clearGeoJsonCache() {
   geoJsonCache = null;
 }
 
-// ---------- helpers exported for testing ----------
-
-export function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
-}
-
-/**
- * bbox を clamp + 正規化する
- * 事実: 経度 -180..180 / 緯度 -90..90 に clamp し、逆転を正規化する（EM1-B）
- */
-export function parseBbox(raw: string | null): [number, number, number, number] | undefined {
-  if (!raw) return undefined;
-  const parts = raw.split(",").map(Number);
-  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return undefined;
-  let [a, b, c, d] = parts;
-  if (a > c) [a, c] = [c, a];
-  if (b > d) [b, d] = [d, b];
-  return [clamp(a, -180, 180), clamp(b, -90, 90), clamp(c, -180, 180), clamp(d, -90, 90)];
-}
+// ---------- helpers exported for testing (pure, client-safe) ----------
+export { type Bbox, clamp, clampBbox, parseBbox } from "@/lib/bbox";
 
 export function clampLimit(raw: unknown, fallback = 1500): number {
   const n = typeof raw === "string" ? Number(raw) : typeof raw === "number" ? raw : Number.NaN;

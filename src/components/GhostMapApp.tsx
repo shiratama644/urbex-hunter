@@ -15,8 +15,8 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DisclaimerDialog from "@/components/DisclaimerDialog";
 import FilterPanel from "@/components/FilterPanel";
-import type { Bbox } from "@/components/Map/MapClient";
 import SpotDetailSheet from "@/components/SpotDetailSheet";
+import { type Bbox, clampBbox } from "@/lib/bbox";
 import { genreEmoji, type SpotCollection, type SpotFacets, type SpotFeature } from "@/lib/types";
 
 const MapClient = dynamic(() => import("@/components/Map/MapClient"), {
@@ -36,15 +36,6 @@ type Props = {
   facets: SpotFacets;
 };
 
-function clampBbox(b: Bbox): Bbox {
-  return [
-    Math.max(-180, Math.min(180, b[0])),
-    Math.max(-90, Math.min(90, b[1])),
-    Math.max(-180, Math.min(180, b[2])),
-    Math.max(-90, Math.min(90, b[3])),
-  ];
-}
-
 export default function GhostMapApp({ initialSpots, facets }: Props) {
   const [spots, setSpots] = useState<SpotFeature[]>(initialSpots);
   const [loadingSpots, setLoadingSpots] = useState(false);
@@ -59,6 +50,7 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<SpotFeature[]>([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
 
   const [selected, setSelected] = useState<SpotFeature | null>(null);
   const [nearby, setNearby] = useState<SpotFeature[]>([]);
@@ -111,7 +103,10 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
       if (!suggestRef.current.contains(e.target as Node)) setSuggestOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSuggestOpen(false);
+      if (e.key === "Escape") {
+        setSuggestOpen(false);
+        setActiveIndex(-1);
+      }
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -120,6 +115,12 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
       document.removeEventListener("keydown", onKey);
     };
   }, []);
+
+  // サジェストが変わったら activeIndex をリセット
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset activeIndex when suggestions change
+  useEffect(() => {
+    setActiveIndex(-1);
+  }, [suggestions]);
 
   /* ---------------- スポット取得 (bbox / フィルタ) ---------------- */
   useEffect(() => {
@@ -288,13 +289,36 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
               }}
               onFocus={() => setSuggestOpen(true)}
               onKeyDown={(e) => {
-                if (e.key === "Escape") setSuggestOpen(false);
+                if (!suggestOpen || suggestions.length === 0) {
+                  if (e.key === "Escape") setSuggestOpen(false);
+                  return;
+                }
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setActiveIndex((prev) => (prev + 1) % suggestions.length);
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setActiveIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+                } else if (e.key === "Enter") {
+                  if (activeIndex >= 0 && activeIndex < suggestions.length) {
+                    e.preventDefault();
+                    openSpot(suggestions[activeIndex], true);
+                  }
+                } else if (e.key === "Escape") {
+                  setSuggestOpen(false);
+                  setActiveIndex(-1);
+                }
               }}
               placeholder="心霊スポット名・住所で検索"
               className="min-w-0 flex-1 bg-transparent py-3.5 text-body-lg text-m3-on-surface placeholder:text-m3-on-surface-variant/70 focus:outline-none"
               aria-label="スポット検索"
               aria-expanded={suggestOpen && suggestions.length > 0}
               aria-controls="ghost-suggest-list"
+              aria-activedescendant={
+                activeIndex >= 0
+                  ? `ghost-suggest-${suggestions[activeIndex]?.properties.spotcd}`
+                  : undefined
+              }
               role="combobox"
               aria-autocomplete="list"
             />
@@ -325,13 +349,18 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
                 exit={{ opacity: 0, y: -8 }}
                 className="thin-scrollbar max-h-[46dvh] overflow-y-auto rounded-b-m3-xl border border-t-0 border-m3-outline-variant/40 bg-m3-surface-container-high/96 shadow-m3-3 backdrop-blur-xl"
               >
-                {suggestions.map((s) => (
-                  // biome-ignore lint: listbox > li[role=option] pattern
-                  <li key={s.properties.spotcd} role="option" aria-selected={false}>
+                {suggestions.map((s, idx) => (
+                  // biome-ignore format lint: listbox > li[role=option] is valid ARIA pattern (MAP-4)
+                  <li key={s.properties.spotcd} id={`ghost-suggest-${s.properties.spotcd}`} role="option" aria-selected={idx === activeIndex}>
                     <button
                       type="button"
                       onClick={() => openSpot(s, true)}
-                      className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-m3-surface-container-highest"
+                      onMouseEnter={() => setActiveIndex(idx)}
+                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${
+                        idx === activeIndex
+                          ? "bg-m3-surface-container-highest"
+                          : "hover:bg-m3-surface-container-highest"
+                      }`}
                     >
                       <span className="text-lg">{genreEmoji(s.properties.genre)}</span>
                       <span className="min-w-0 flex-1">
@@ -424,6 +453,21 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
           </span>
         </div>
       </div>
+
+      {/* 空状態（MAP-2: フィルタで 0 件時の fallback） */}
+      {!loadingSpots && spots.length === 0 ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none absolute top-1/2 left-1/2 z-[1040] -translate-x-1/2 -translate-y-1/2 rounded-m3-xl border border-m3-outline-variant/30 bg-m3-surface-container-high/90 px-6 py-5 text-center shadow-m3-3 backdrop-blur-xl"
+        >
+          <Ghost className="mx-auto mb-2 text-m3-outline" size={28} />
+          <p className="text-title-sm text-m3-on-surface">該当するスポットがありません</p>
+          <p className="mt-1 text-body-sm text-m3-on-surface-variant">
+            フィルターや地図の範囲を調整してください
+          </p>
+        </div>
+      ) : null}
 
       {/* ---------------- FAB 群 ---------------- */}
       <div className="absolute right-3 bottom-24 z-[1100] flex flex-col gap-3 md:right-4 md:bottom-28">

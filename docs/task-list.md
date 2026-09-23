@@ -44,7 +44,7 @@ Next.js (App Router) + PostgreSQL(Drizzle) + Tailwind v4 (M3 Expressive) + Leafl
 |---|---|---|
 | **0** | 基盤導入（zip 展開・AGENTS/.agent/docs 移植・疎通） | 完了（SETUP-0〜5 / `2b2bd43` / `npm run build` pass） |
 | **EM1** | **Bug fixes**（監査 P0/P1 全解消 + P2 選別） | 完了— 詳細は [`audit/EM1-bug-report.md`](./audit/EM1-bug-report.md) / [`planning/EM1_PLAN.md`](./planning/EM1_PLAN.md) |
-| **1** | 地図の堅牢化（bbox/クラスタ/SSR分離/a11y/パフォーマンス） | 未着手（EM1 後に再評価） |
+| **1** | 地図の堅牢化（bbox/クラスタ/SSR分離/a11y/パフォーマンス） | 完了 — 詳細は [`planning/PHASE1_PLAN.md`](./planning/PHASE1_PLAN.md) |
 | **2** | API / DB 強化（facets キャッシュ・近隣・seed 冪等・index） | 未着手（EM1-B で一部先行） |
 | **3** | スクレイパー強化（リトライ・差分・重複排除・ポライトネス） | 未着手（EM1-C で一部先行） |
 | **4** | UI 磨き（M3 トークン整理・motion 予算・フィルタ永続化・免責） | 未着手（EM1-D で一部先行） |
@@ -79,10 +79,10 @@ Next.js (App Router) + PostgreSQL(Drizzle) + Tailwind v4 (M3 Expressive) + Leafl
 
 | ID | タスク | 状態 | 進捗 | 依存 | 完了条件 | 証拠 |
 |---|---|---|---:|---|---|---|
-| MAP-1 | bbox パース・クランプと zoom 閾値（`zoom>=8`）のテスト追加 | 未着手 | 0% | SETUP-5 | 不正 bbox で 500 にしない。閾値が adr.md と一致 | |
-| MAP-2 | markerCluster の色分け（fearTone）と fallback 表現の整理 | 未着手 | 0% | MAP-1 | 未評価/低/中/高/極度の配色が `globals.css` と一致 | |
-| MAP-3 | MapClient の SSR 分離と Leaflet CSS の安定化 | 未着手 | 0% | SETUP-5 | `window is not defined` が起きない。CSS 崩れなし | |
-| MAP-4 | a11y / キーボード操作（FilterPanel / DetailSheet / Dialog） | 未着手 | 0% | MAP-3 | ESC で閉じる / フォーカス管理 / aria | |
+| MAP-1 | bbox パース・クランプと zoom 閾値（`zoom>=8`）のテスト追加 | 完了 | 100% | SETUP-5 | 不正 bbox で 500 にしない。閾値が adr.md と一致 | `pnpm run test` clampBbox 2 cases / `src/lib/bbox.ts` export |
+| MAP-2 | markerCluster の色分け（fearTone）と fallback 表現の整理 | 完了 | 100% | MAP-1 | 未評価/低/中/高/極度の配色が `globals.css` と一致 | `MapClient` clusterIcon 5段階 + empty state `role=status` |
+| MAP-3 | MapClient の SSR 分離と Leaflet CSS の安定化 | 完了 | 100% | SETUP-5 | `window is not defined` が起きない。CSS 崩れなし | `dynamic ssr:false` + `leaflet.css` in MapClient / build 7/7 |
+| MAP-4 | a11y / キーボード操作（FilterPanel / DetailSheet / Dialog） | 完了 | 100% | MAP-3 | ESC で閉じる / フォーカス管理 / aria | サジェスト ↑↓/Enter/aria-activedescendant + FilterPanel Tab trap / biome 0 |
 
 ### Phase 2 — API / DB 強化
 

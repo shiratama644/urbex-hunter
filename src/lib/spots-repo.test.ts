@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { clampBbox } from "@/lib/bbox";
 import { clamp, clampLimit, clampQ, filterGeoJson, parseBbox } from "@/lib/spots-repo";
 import type { SpotFeature } from "@/lib/types";
 import { fearTone } from "@/lib/types";
@@ -45,6 +46,18 @@ function makeRaw(
     properties: SpotFeature["properties"];
   };
 }
+
+describe("clampBbox", () => {
+  it("clamps -180..180 / -90..90", () => {
+    expect(clampBbox([200, 100, -200, -100])).toEqual([180, 90, -180, -90]);
+    expect(clampBbox([139.7, 35.6, 139.8, 35.7])).toEqual([139.7, 35.6, 139.8, 35.7]);
+  });
+  it("clamps padded bbox (MAP-1: pad 0.15)", () => {
+    // simulate GhostMapApp padded bbox that overflows
+    const bbox: [number, number, number, number] = [179, 89, 181, 91];
+    expect(clampBbox(bbox)).toEqual([179, 89, 180, 90]);
+  });
+});
 
 describe("parseBbox", () => {
   it("clamps", () => {

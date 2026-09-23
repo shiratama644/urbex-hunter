@@ -6,9 +6,8 @@ import { MapContainer, TileLayer, useMap, useMapEvents, ZoomControl } from "reac
 import "leaflet.markercluster";
 import "leaflet/dist/leaflet.css";
 import "leaflet.markercluster/dist/MarkerCluster.css";
+import type { Bbox } from "@/lib/bbox";
 import { fearTone, genreEmoji, type SpotFeature } from "@/lib/types";
-
-export type Bbox = [number, number, number, number];
 
 type Props = {
   spots: SpotFeature[];
@@ -45,13 +44,34 @@ function pinIcon(spot: SpotFeature, selected: boolean) {
   });
 }
 
-function clusterIcon(count: number) {
+function clusterIcon(count: number, tone?: ReturnType<typeof fearTone>) {
   const size = count < 10 ? 40 : count < 50 ? 48 : count < 200 ? 58 : 68;
+  const bg = tone
+    ? `radial-gradient(circle at 30% 25%, ${tone.bg} 0%, ${tone.bg} 70%, ${tone.fg}22 100%)`
+    : "radial-gradient(circle at 30% 25%, #eaddff 0%, #d0bcff 55%, #b69df8 100%)";
+  const fg = tone?.fg ?? "#2a1145";
+  const ring = tone ? `0 0 0 8px ${tone.bg}33` : "0 0 0 8px rgb(208 188 255 / 0.18)";
   return L.divIcon({
     className: "ghost-cluster",
-    html: `<div class="ghost-cluster-inner" style="width:${size}px;height:${size}px;font-size:${size / 3.2}px">${count}</div>`,
+    html: `<div class="ghost-cluster-inner" style="width:${size}px;height:${size}px;font-size:${size / 3.2}px;background:${bg};color:${fg};box-shadow:${ring},0 6px 16px rgb(0 0 0 / 0.5)">${count}</div>`,
     iconSize: L.point(size, size),
   });
+}
+
+function clusterTone(markers: L.Marker[]): ReturnType<typeof fearTone> | undefined {
+  if (markers.length === 0 || markers.length > 200) return undefined;
+  let sum = 0;
+  let n = 0;
+  for (const m of markers) {
+    const spot = (m as unknown as { _ghostSpot?: SpotFeature })._ghostSpot;
+    const r = spot?.properties.fearRating;
+    if (typeof r === "number" && Number.isFinite(r) && r > 0) {
+      sum += r;
+      n += 1;
+    }
+  }
+  if (n === 0) return fearTone(null);
+  return fearTone(sum / n);
 }
 
 function ClusterLayer({
@@ -76,7 +96,21 @@ function ClusterLayer({
       chunkedLoading: true,
       chunkInterval: 100,
       chunkDelay: 50,
-      iconCreateFunction: (cluster) => clusterIcon(cluster.getChildCount()),
+      iconCreateFunction: (cluster) => {
+        const c = cluster as unknown as {
+          getChildCount: () => number;
+          getAllChildMarkers: () => L.Marker[];
+        };
+        const count = c.getChildCount();
+        // 大クラスタ（>200）は平均計算をスキップして既定色（パフォーマンス配慮）
+        if (count > 200) return clusterIcon(count);
+        try {
+          const tone = clusterTone(c.getAllChildMarkers());
+          return clusterIcon(count, tone);
+        } catch {
+          return clusterIcon(count);
+        }
+      },
     });
     groupRef.current = group;
     map.addLayer(group);
@@ -114,6 +148,7 @@ function ClusterLayer({
           title: spot.properties.name,
           riseOnHover: true,
         });
+        (marker as unknown as { _ghostSpot: SpotFeature })._ghostSpot = spot;
         marker.on("click", () => onSelectRef.current(spot));
         markersRef.current.set(spot.properties.spotcd, marker);
         toAdd.push(marker);

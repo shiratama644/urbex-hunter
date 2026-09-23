@@ -37,11 +37,35 @@ export default function FilterPanel({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key === "Tab" && panelRef.current) {
+        const nodes = panelRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (nodes.length === 0) return;
+        const first = nodes[0];
+        const last = nodes[nodes.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+        if (e.shiftKey) {
+          if (active === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (active === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
     };
     document.addEventListener("keydown", onKey);
-    // フォーカスをパネル内に移動（WCAG 2.4.3）
-    panelRef.current?.focus();
+    // フォーカスをパネル内に移動（WCAG 2.4.3）— 最初のボタンにフォーカス
+    const firstBtn = panelRef.current?.querySelector<HTMLElement>("button");
+    (firstBtn ?? panelRef.current)?.focus();
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
