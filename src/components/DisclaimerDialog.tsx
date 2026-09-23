@@ -1,26 +1,43 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { HeartHandshake, ShieldAlert, TriangleAlert, UserRoundX } from "lucide-react";
+import {
+  HeartHandshake,
+  Info,
+  Mountain,
+  ShieldAlert,
+  TriangleAlert,
+  UserRoundX,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 const STORAGE_KEY = "ghostmap:disclaimer:v1";
 
 const ITEMS = [
   {
+    icon: Info,
+    title: "情報の正確性は保証しません",
+    body: "本アプリの情報は「全国心霊マップ」より収集した参考情報です。現地の状況は変化するため、正確性を保証しません。",
+  },
+  {
     icon: UserRoundX,
-    title: "私有地への無断侵入は禁止",
-    body: "掲載地点には私有地・立入禁止区域が含まれます。無断侵入は不法侵入罪に問われます。必ず公道や許可された場所からの見学に留めてください。",
+    title: "私有地・立入禁止区域への侵入は禁止",
+    body: "掲載地点には私有地・立入禁止区域が含まれます。法令とマナーを守り、無断侵入はしないでください。",
   },
   {
     icon: HeartHandshake,
-    title: "近隣住民への配慮",
-    body: "深夜の大声・路上駐車・ゴミの放置は絶対にやめましょう。多くのスポットは生活圏の中にあります。",
+    title: "近隣住民・施設への配慮を最優先",
+    body: "夜間の騒音・路上駐車・ライト等の迷惑行為をしないでください。多くのスポットは生活圏の中にあります。",
   },
   {
     icon: TriangleAlert,
-    title: "自己責任・免責事項",
-    body: "本アプリの情報は「全国心霊マップ」より収集した参考情報です。訪問により生じた事故・怪我・トラブル等について、当方は一切の責任を負いません。",
+    title: "訪問は各自の責任 — 免責",
+    body: "心霊スポットへの訪問は各自の責任で行ってください。事故・怪我・トラブルについて運営は責任を負いません。",
+  },
+  {
+    icon: Mountain,
+    title: "危険な場所では安全を最優先",
+    body: "崖・トンネル・廃墟・ダム等では無理な侵入をしないでください。安全を最優先し、危険を感じたら引き返してください。",
   },
 ];
 

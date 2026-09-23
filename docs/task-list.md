@@ -47,7 +47,7 @@ Next.js (App Router) + PostgreSQL(Drizzle) + Tailwind v4 (M3 Expressive) + Leafl
 | **1** | 地図の堅牢化（bbox/クラスタ/SSR分離/a11y/パフォーマンス） | 完了 — 詳細は [`planning/PHASE1_PLAN.md`](./planning/PHASE1_PLAN.md) |
 | **2** | API / DB 強化（facets キャッシュ・近隣・seed 冪等・index） | 完了 — 詳細は [`planning/PHASE2_PLAN.md`](./planning/PHASE2_PLAN.md) |
 | **3** | スクレイパー強化（リトライ・差分・重複排除・ポライトネス） | 完了 — 詳細は [`planning/PHASE3_PLAN.md`](./planning/PHASE3_PLAN.md) |
-| **4** | UI 磨き（M3 トークン整理・motion 予算・フィルタ永続化・免責） | 未着手（EM1-D で一部先行） |
+| **4** | UI 磨き（M3 トークン整理・motion 予算・フィルタ永続化・免責） | 完了 — 詳細は [`planning/PHASE4_PLAN.md`](./planning/PHASE4_PLAN.md) |
 | **5** | 運用 / 品質（テスト・E2E・監視・workflow 可観測性） | 未着手（EM1-F で土台） |
 
 ### Phase 0 — 基盤導入
@@ -105,10 +105,10 @@ Next.js (App Router) + PostgreSQL(Drizzle) + Tailwind v4 (M3 Expressive) + Leafl
 
 | ID | タスク | 状態 | 進捗 | 依存 | 完了条件 | 証拠 |
 |---|---|---|---:|---|---|---|
-| UI-1 | M3 トークン（@theme）の整理と命名の固定 | 未着手 | 0% | SETUP-5 | `docs/arch/ui.md` と `globals.css` が一致 | |
-| UI-2 | motion 予算と地図操作の非ブロッキング | 未着手 | 0% | UI-1 | 拡大/縮小が motion で妨げられない | |
-| UI-3 | フィルタ永続化（URL クエリ / LocalStorage） | 未着手 | 0% | API-1 | リロードでフィルタが復元される | |
-| UI-4 | 免責文言の最終確認（legal.md と一致） | 未着手 | 0% | SETUP-5 | `DisclaimerDialog` と `legal.md` が一致 | |
+| UI-1 | M3 トークン（@theme）の整理と命名の固定 | 完了 | 100% | SETUP-5 | `docs/arch/ui.md` と `globals.css` が一致。`tailwind.config.ts` 無し維持 | `src/app/globals.css @theme` / `docs/arch/ui.md` タイルURL修正 2026-09-23 |
+| UI-2 | motion 予算と地図操作の非ブロッキング | 完了 | 100% | UI-1 | `prefers-reduced-motion` で animation/transition 抑制。`transform`/`opacity` のみで地図ブロックなし | `globals.css @media (prefers-reduced-motion: reduce)` / `build` pass 2026-09-23 |
+| UI-3 | フィルタ永続化（URL クエリ / LocalStorage） | 完了 | 100% | API-1 | `URL → LocalStorage(ghostmap:filters:v1) → default` 復元、`replaceState` + `localStorage` 同期、`popstate` 対応、`onReset` で LS クリア | `src/components/GhostMapApp.tsx` hybrid + manual リロード確認 2026-09-23 |
+| UI-4 | 免責文言の最終確認（legal.md と一致） | 完了 | 100% | SETUP-5 | `DisclaimerDialog` が `legal.md` 5項目（正確性/私有地/近隣/自己責任/危険場所）を完全表示。煽り表現なし | `src/components/DisclaimerDialog.tsx` 5 items / `docs/arch/legal.md` 2026-09-23 |
 
 ### Phase 5 — 運用 / 品質
 

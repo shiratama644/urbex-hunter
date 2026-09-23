@@ -78,8 +78,10 @@ GhostMapApp (Client, 状態親)
 
 ## Leaflet 詳細
 
-- **タイル**: `https://{s}.basemaps.cartocdn.com/{dark_all|light_all}/{z}/{x}/{y}{r}.png`
-  - `dark` = Dark Matter、`light` = Positron。`tile` state で切り替える。
+- **タイル**: `MapClient.tsx` の `TILES` が正本
+  - `dark` = `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png` (Dark Matter)
+  - `light` = `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png` (Voyager)
+  - `tile` state (`dark`|`light`) で切り替える。`docs` 上の旧 `light_all` 表記は本コードが正本。
 - **初期表示**: 日本全域が見える zoom 5 相当。`flyTo` は `flyTarget`（lat/lng/zoom/key）で制御する。
 - **bbox 絞り込み**: `bbox && zoom >= 8` の時のみ `GET /api/spots?bbox=...` を送る。pad 0.15 で拡張し `-180..180`/`-90..90` に clamp（EM1-D）。広域での無駄な絞り込み・範囲超過を避ける。
 - **クラスタ**: `leaflet.markercluster`（`chunkedLoading: true` + `chunkInterval: 100` / `chunkDelay: 50`）。クラスタバブルは Expressive な円形。個別ピンは `fearRating` の `fearTone`（閾値 3.0/3.6/4.2）で色分け。差分更新（clearLayers 全再構築ではなく added/removed のみ addLayers/removeLayer）で 1500 件の jank を緩和（EM1-D）。
@@ -89,7 +91,8 @@ GhostMapApp (Client, 状態親)
 ## Motion
 
 - `framer-motion` の `AnimatePresence` + `motion`。M3 の `ease-m3-emphasized` / `ease-m3-spatial` を使う。
-- Bottom Sheet の spring 展開・ドラッグで閉じる挙動を維持する。長時間の motion で地図操作をブロックしない。
+- Bottom Sheet の spring 展開・ドラッグで閉じる挙動を維持する。長時間の motion で地図操作をブロックしない（`transform`/`opacity` のみ、Leaflet のパン/ズームは JS で `transform: translate3d` を直接操作するため非ブロッキング）。
+- `globals.css` で `@media (prefers-reduced-motion: reduce)` により `animation/transition` を 0.01ms に抑制し、WCAG 2.3.3（Animation from Interactions）を満たす。M3 の `ease-m3-*` は維持しつつ OS 設定で無効化できる。
 
 ## アクセシビリティ
 

@@ -72,21 +72,43 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
 
   const topGenres = useMemo(() => facets.genres.slice(0, 12), [facets.genres]);
 
-  /* ---------------- フィルタ永続化（URLクエリ） ---------------- */
+  /* ---------------- フィルタ永続化（URLクエリ + LocalStorage ハイブリッド） ---------------- */
+  const LS_FILTERS_KEY = "ghostmap:filters:v1";
+  const hydratedRef = useRef(false);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const g = params.get("genre");
-    const p = params.get("pref");
-    const r = params.get("min_rating");
+    let g = params.get("genre");
+    let p = params.get("pref");
+    let r = params.get("min_rating");
+    // URL が空なら LocalStorage をフォールバック
+    if (!g && !p && !r) {
+      try {
+        const raw = localStorage.getItem(LS_FILTERS_KEY);
+        if (raw) {
+          const o = JSON.parse(raw) as {
+            genres?: string[];
+            prefs?: string[];
+            minRating?: number;
+          };
+          if (o.genres?.length) g = o.genres.join(",");
+          if (o.prefs?.length) p = o.prefs.join(",");
+          if (o.minRating) r = String(o.minRating);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
     if (g) setGenres(g.split(",").filter(Boolean));
     if (p) setPrefs(p.split(",").filter(Boolean));
     if (r) {
       const n = Number(r);
       if (Number.isFinite(n)) setMinRating(n);
     }
+    hydratedRef.current = true;
   }, []);
 
   useEffect(() => {
+    if (!hydratedRef.current) return;
     const params = new URLSearchParams();
     if (genres.length) params.set("genre", genres.join(","));
     if (prefs.length) params.set("pref", prefs.join(","));
@@ -94,7 +116,25 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
     const qs = params.toString();
     const url = qs ? `?${qs}` : window.location.pathname;
     window.history.replaceState(null, "", url);
+    try {
+      localStorage.setItem(LS_FILTERS_KEY, JSON.stringify({ genres, prefs, minRating }));
+    } catch {
+      /* ignore */
+    }
   }, [genres, prefs, minRating]);
+
+  // 戻る/進む で URL から復元（popstate）
+  useEffect(() => {
+    const onPop = () => {
+      const params = new URLSearchParams(window.location.search);
+      setGenres(params.get("genre")?.split(",").filter(Boolean) ?? []);
+      setPrefs(params.get("pref")?.split(",").filter(Boolean) ?? []);
+      const r = params.get("min_rating");
+      setMinRating(r ? Number(r) || 0 : 0);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   /* ---------------- サジェスト外側クリック / ESC ---------------- */
   useEffect(() => {
@@ -520,6 +560,11 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
           setGenres([]);
           setPrefs([]);
           setMinRating(0);
+          try {
+            localStorage.removeItem("ghostmap:filters:v1");
+          } catch {
+            /* ignore */
+          }
         }}
       />
 
