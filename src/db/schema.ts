@@ -37,6 +37,13 @@ export const spots = pgTable(
     imageUrl: text("image_url"),
     sourceUrl: text("source_url").notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Phase 3 拡張 — GeoJSON/SpotProperties 先行、DB 移行は次フェーズで有効化
+    // nearestStation: text("nearest_station"), access: text("access"),
+    // surroundingFacilities: text("surrounding_facilities").array(),
+    // ghostTypes: jsonb("ghost_types"), faq: jsonb("faq"),
+    // photoCount: integer("photo_count"), videoCount: integer("video_count"),
+    // streetViewCount: integer("street_view_count"), experienceCount: integer("experience_count"), commentCount: integer("comment_count"),
+    // spotUpdatedAt: text("spot_updated_at"), // ghostmap 上の更新日 (YYYY-MM-DD)
   },
   (t) => [
     index("spots_pref_idx").on(t.prefecture),

@@ -88,6 +88,18 @@ export type SpotProps = {
   comment: string | null;
   imageUrl: string | null;
   sourceUrl: string;
+  // Phase 3 拡張（後方互換: すべて null 許容）
+  nearestStation: string | null;
+  access: string | null;
+  surroundingFacilities: string[];
+  ghostTypes: Record<string, number> | null;
+  photoCount: number | null;
+  videoCount: number | null;
+  streetViewCount: number | null;
+  experienceCount: number | null;
+  commentCount: number | null;
+  updatedAt: string | null;
+  faq: { q: string; a: string }[] | null;
 };
 
 export type SpotFeature = {
@@ -126,21 +138,30 @@ const cleanMultiline = (raw?: string | null): string | null => {
   return t.length ? t : null;
 };
 
-async function fetchHtml(url: string, retries = 2): Promise<string | null> {
+async function fetchHtml(url: string, retries = 3): Promise<string | null> {
   for (let i = 0; i <= retries; i++) {
     try {
       const res = await fetch(url, {
         headers: { "User-Agent": UA, "Accept-Language": "ja" },
         signal: AbortSignal.timeout(25_000),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        if (res.status === 429) {
+          const ra = Number(res.headers.get("Retry-After") ?? "2");
+          const wait = Number.isFinite(ra) ? ra * 1000 : 2000;
+          console.warn(`  ! 429 ${url} — Retry-After ${wait}ms`);
+          await new Promise((r) => setTimeout(r, wait));
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
       return await res.text();
     } catch (err) {
       if (i === retries) {
         console.warn(`  ! failed ${url}: ${(err as Error).message}`);
         return null;
       }
-      await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+      const jitter = Math.random() * 400;
+      await new Promise((r) => setTimeout(r, 800 * (i + 1) + jitter));
     }
   }
   return null;
@@ -200,15 +221,22 @@ export function parseSpot(html: string, spotcd: number): SpotFeature | null {
   }
 
   // 概要テーブル (th ラベル -> td) — th は前方一致で取得（EM1-C）
+  // Phase 3: outline + 地図テーブルの両方を統合（最寄り駅/アクセス/周辺施設は地図側にある）
   const table: Record<string, string> = {};
-  $("table.table_outline tr").each((_, tr) => {
-    const th = clean($(tr).find("th").first().text());
-    const tdEl = $(tr).find("td").first();
-    if (!th) return;
-    tdEl.find("a,input,img,script").remove();
-    const td = cleanMultiline(tdEl.text());
-    if (td) table[th] = td;
-  });
+  const collectRows = (sel: string) => {
+    $(sel).each((_, tr) => {
+      const th = clean($(tr).find("th").first().text());
+      const tdEl = $(tr).find("td").first();
+      if (!th || !tdEl.length) return;
+      tdEl.find("a,input,img,script").remove();
+      tdEl.find("br").replaceWith("\n");
+      const td = cleanMultiline(tdEl.text());
+      if (td && !table[th]) table[th] = td;
+    });
+  };
+  collectRows("table.table_outline tr");
+  collectRows("#chapter_map table tr");
+  collectRows("table tr");
   const tableGet = (prefix: string): string | null => {
     const entry = Object.entries(table).find(([k]) => k.startsWith(prefix));
     return entry ? entry[1] : null;
@@ -258,6 +286,87 @@ export function parseSpot(html: string, spotcd: number): SpotFeature | null {
     tableGet("ジャンル") ??
     null;
 
+  // ---------- Phase 3 拡張フィールド ----------
+  const nearestStation = tableGet("最寄り駅") ?? null;
+  const access = tableGet("アクセス") ?? null;
+  const facilitiesRaw = tableGet("周辺施設") ?? null;
+  const surroundingFacilities = facilitiesRaw
+    ? facilitiesRaw
+        .split(/[、,\n]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .flatMap((s) =>
+          s
+            .split(/\s{2,}/)
+            .map((x) => x.trim())
+            .filter(Boolean)
+        )
+    : [];
+
+  // 投稿情報: 写真1枚、動画0件、ストリートビュー0件、体験談0話、コメント0件
+  const postInfo = tableGet("投稿情報") ?? "";
+  const extractCount = (re: RegExp): number | null => {
+    const m = postInfo.match(re);
+    return m ? num(m[1]) : null;
+  };
+  const photoCount = extractCount(/写真\s*([0-9０-９]+)\s*枚/);
+  const videoCount = extractCount(/動画\s*([0-9０-９]+)\s*件/);
+  const streetViewCount = extractCount(/ストリートビュー\s*([0-9０-９]+)\s*件/);
+  const experienceCount = extractCount(/体験談\s*([0-9０-９]+)\s*話/);
+  const commentCount = extractCount(/コメント\s*([0-9０-９]+)\s*件/);
+
+  // 幽霊タイプ別投票: 少年0 少女0 ... 正体不明1 — HTML 全体から正規表現で抽出
+  const ghostTypes: Record<string, number> | null = (() => {
+    const types = ["少年", "少女", "男性", "女性", "老爺", "老婆", "動物", "正体不明"];
+    const found: Record<string, number> = {};
+    let has = false;
+    for (const tp of types) {
+      const re = new RegExp(`${tp}\\s*(\\d+)`);
+      const m = html.match(re);
+      if (m) {
+        found[tp] = Number(m[1]);
+        has = true;
+      }
+    }
+    return has ? found : null;
+  })();
+
+  // 更新日: 更新日:2026/09/22
+  const updatedAtRaw = html.match(/更新日\s*[:：]\s*(\d{4}[/-]\d{1,2}[/-]\d{1,2})/)?.[1] ?? null;
+  const updatedAt = updatedAtRaw ? updatedAtRaw.replace(/\//g, "-") : null;
+
+  // FAQ: よくある質問セクション
+  const faq: { q: string; a: string }[] | null = (() => {
+    const list: { q: string; a: string }[] = [];
+    // #chapter_faq / .faq 内の dt/dd を優先
+    $("#chapter_faq dt, .faq dt, #chapter_faq h3, #chapter_faq h4").each((_, el) => {
+      const q = clean($(el).text());
+      if (!q) return;
+      // dt の次が dd、h3/h4 の次が p/div
+      let aEl = $(el).next("dd, p, div");
+      if (!aEl.length) aEl = $(el).parent().next();
+      const a = clean(aEl.text());
+      if (q && a && q.length < 80 && a.length > 10) {
+        // FAQ らしいもののみ（質問は短く回答は長い）
+        if (/[？?]$/.test(q) || q.includes("なぜ") || q.includes("どう")) {
+          list.push({ q, a });
+        }
+      }
+    });
+    // フォールバック: よくある質問見出し直後の dl を直接パース
+    if (list.length === 0) {
+      const faqRoot = $("h2:contains('よくある質問'), h3:contains('よくある質問')")
+        .first()
+        .parent();
+      faqRoot.find("dl dt").each((_, dt) => {
+        const q = clean($(dt).text());
+        const a = clean($(dt).next("dd").text());
+        if (q && a) list.push({ q, a });
+      });
+    }
+    return list.length ? list.slice(0, 8) : null;
+  })();
+
   // 画像: outline_image → og:image fallback → https 強制
   let imageUrl: string | null = null;
   const image = $("#outline_image img").attr("src");
@@ -296,6 +405,17 @@ export function parseSpot(html: string, spotcd: number): SpotFeature | null {
     comment: tableGet("コメント") ?? null,
     imageUrl,
     sourceUrl: `${BASE}/spotdetail.php?spotcd=${spotcd}`,
+    nearestStation,
+    access,
+    surroundingFacilities,
+    ghostTypes,
+    photoCount,
+    videoCount,
+    streetViewCount,
+    experienceCount,
+    commentCount,
+    updatedAt,
+    faq,
   };
 
   return {

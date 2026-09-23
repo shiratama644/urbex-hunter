@@ -18,6 +18,18 @@ export type SpotProperties = {
   comment: string | null;
   imageUrl: string | null;
   sourceUrl: string;
+  // Phase 3 拡張フィールド（後方互換: 既存 GeoJSON は undefined → null 扱い）
+  nearestStation?: string | null;
+  access?: string | null;
+  surroundingFacilities?: string[];
+  ghostTypes?: Record<string, number> | null;
+  photoCount?: number | null;
+  videoCount?: number | null;
+  streetViewCount?: number | null;
+  experienceCount?: number | null;
+  commentCount?: number | null;
+  updatedAt?: string | null;
+  faq?: { q: string; a: string }[] | null;
 };
 
 export type SpotFeature = {

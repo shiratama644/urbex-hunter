@@ -38,6 +38,11 @@ CONCURRENCY=6 npx tsx scripts/scrape.ts     # 同時接続（既定6）
 | 怖さ評価(5段階) / 評価人数 | 詳細の評価欄 | `fearRating` / `ratingCount` |
 | 概要 / 代表コメント | 詳細の本文 | `outline` / `comment` |
 | 画像URL / 元記事URL | 詳細の画像・リンク | `imageUrl` / `sourceUrl`（必須） |
+| 最寄り駅 / アクセス / 周辺施設 | 詳細の地図テーブル (`最寄り駅`/`アクセス`/`周辺施設`) | `nearestStation` / `access` / `surroundingFacilities: string[]` — Phase 3 で `fetch_page` 実地確認し追加 |
+| 投稿情報（写真/動画/ストビュー/体験談/コメント件数） | 詳細の `投稿情報` 行 | `photoCount` / `videoCount` / `streetViewCount` / `experienceCount` / `commentCount` — 正規表現 `[0-9０-９]+` で全角対応 |
+| 幽霊タイプ別投票 | 詳細の `どんな幽霊が出ましたか？` | `ghostTypes: Record<string,number>`（少年/少女/男性/女性/老爺/老婆/動物/正体不明）— HTML 全体から正規表現で堅牢に抽出 |
+| 更新日 | ページ上部 `更新日:2026/09/22` | `updatedAt`（`YYYY-MM-DD` に正規化） |
+| よくある質問 | 詳細の `よくある質問と回答` | `faq: {q,a}[]`（最大8件）— `#chapter_faq dt/dd` を優先、無ければ null |
 
 抽出失敗（リンク無し・正規表現不一致等）は `null` / `[]` に倒し、スクレイパー全体を落とさない。`spotcd` が取れない行はスキップする。
 

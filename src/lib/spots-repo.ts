@@ -330,6 +330,8 @@ export type SpotQuery = {
 };
 
 export function rowToFeature(row: SpotRow): SpotFeature {
+  // Phase 3 拡張フィールドは将来の DB カラム（nearestStation等）があれば透過、無ければ undefined→null 扱い
+  const r = row as unknown as Record<string, unknown>;
   return {
     type: "Feature",
     geometry: { type: "Point", coordinates: [row.lng, row.lat] },
@@ -353,6 +355,17 @@ export function rowToFeature(row: SpotRow): SpotFeature {
       comment: row.comment,
       imageUrl: row.imageUrl,
       sourceUrl: row.sourceUrl,
+      nearestStation: (r["nearestStation"] as string | null) ?? null,
+      access: (r["access"] as string | null) ?? null,
+      surroundingFacilities: (r["surroundingFacilities"] as string[] | null) ?? [],
+      ghostTypes: (r["ghostTypes"] as Record<string, number> | null) ?? null,
+      photoCount: (r["photoCount"] as number | null) ?? null,
+      videoCount: (r["videoCount"] as number | null) ?? null,
+      streetViewCount: (r["streetViewCount"] as number | null) ?? null,
+      experienceCount: (r["experienceCount"] as number | null) ?? null,
+      commentCount: (r["commentCount"] as number | null) ?? null,
+      updatedAt: (r["updatedAt"] as string | null) ?? null,
+      faq: (r["faq"] as { q: string; a: string }[] | null) ?? null,
     },
   };
 }

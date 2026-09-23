@@ -46,7 +46,7 @@ Next.js (App Router) + PostgreSQL(Drizzle) + Tailwind v4 (M3 Expressive) + Leafl
 | **EM1** | **Bug fixes**（監査 P0/P1 全解消 + P2 選別） | 完了— 詳細は [`audit/EM1-bug-report.md`](./audit/EM1-bug-report.md) / [`planning/EM1_PLAN.md`](./planning/EM1_PLAN.md) |
 | **1** | 地図の堅牢化（bbox/クラスタ/SSR分離/a11y/パフォーマンス） | 完了 — 詳細は [`planning/PHASE1_PLAN.md`](./planning/PHASE1_PLAN.md) |
 | **2** | API / DB 強化（facets キャッシュ・近隣・seed 冪等・index） | 完了 — 詳細は [`planning/PHASE2_PLAN.md`](./planning/PHASE2_PLAN.md) |
-| **3** | スクレイパー強化（リトライ・差分・重複排除・ポライトネス） | 未着手（EM1-C で一部先行） |
+| **3** | スクレイパー強化（リトライ・差分・重複排除・ポライトネス） | 完了 — 詳細は [`planning/PHASE3_PLAN.md`](./planning/PHASE3_PLAN.md) |
 | **4** | UI 磨き（M3 トークン整理・motion 予算・フィルタ永続化・免責） | 未着手（EM1-D で一部先行） |
 | **5** | 運用 / 品質（テスト・E2E・監視・workflow 可観測性） | 未着手（EM1-F で土台） |
 
@@ -97,9 +97,9 @@ Next.js (App Router) + PostgreSQL(Drizzle) + Tailwind v4 (M3 Expressive) + Leafl
 
 | ID | タスク | 状態 | 進捗 | 依存 | 完了条件 | 証拠 |
 |---|---|---|---:|---|---|---|
-| SCR-1 | リトライ・タイムアウト・UA 維持の堅牢化 | 未着手 | 0% | SETUP-5 | 一時失敗で全体が落ちない。UA を維持 | |
-| SCR-2 | 座標抽出（`?q=lat,lng` 正規表現）の分岐テスト | 未着手 | 0% | SCR-1 | 正常/異常リンクの両方で落ちない | |
-| SCR-3 | GeoJSON マージの重複排除と count 更新 | 未着手 | 0% | SCR-2 | `spotcd` 重複で最新が勝つ。件数が正しい | |
+| SCR-1 | リトライ・タイムアウト・UA 維持の堅牢化 | 完了 | 100% | SETUP-5 | `fetchHtml` 3 retries + 指数バックオフ(800ms*(i+1)+jitter) + `AbortSignal.timeout(25000)` + `Retry-After` 対応。一時失敗で全体が落ちず `null` を返す。UA `GhostMapStudyBot/1.0` 維持 | `scripts/scrape.ts:fetchHtml` / `biome`/`typecheck` pass 2026-09-23 |
+| SCR-2 | 座標抽出（`?q=lat,lng` 正規表現）の分岐テスト | 完了 | 100% | SCR-1 | `maps?q=lat,lng` / `"latitude":` JSON / `data-lat` の3パターン + 異常系null。全6ケースが `scripts/scrape.test.ts` で pass。`collectRows` で `table.table_outline`/`#chapter_map`/`table` の3セレクタと `br→\n` に対応 | `pnpm test` 37 passed (scrape 11 + spots-repo 26) 2026-09-23 |
+| SCR-3 | GeoJSON マージの重複排除と count 更新 + 拡張フィールド | 完了 | 100% | SCR-2 | `spotcd` 重複で最新が勝つ・`count=features.length`・`generatedAt` ISO8601。`nearestStation/access/surroundingFacilities/ghostTypes[8種]/photoCount/videoCount/streetViewCount/experienceCount/commentCount/updatedAt/faq` を `fetch_page` 実地確認し追加。`[0-9０-９]+` で全角対応・後方互換null | `scripts/scrape.ts:parseSpot` / `src/lib/types.ts` / `docs/arch/scraping.md` / `docs/arch/data-model.md` 2026-09-23 |
 
 ### Phase 4 — UI 磨き
 
