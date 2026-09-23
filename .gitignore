@@ -1,5 +1,7 @@
 # Logs
 logs
+!.agent/logs/
+!.agent/logs/**
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -127,6 +129,8 @@ dist
 
 # pnpm
 .pnpm-store
+package-lock.json
+yarn.lock
 
 # yarn v3
 .pnp.*
@@ -141,3 +145,4 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+next-env.d.ts

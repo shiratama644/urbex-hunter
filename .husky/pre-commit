@@ -1,0 +1,4 @@
+corepack pnpm run typecheck
+corepack pnpm run ci
+corepack pnpm run test
+corepack pnpm exec playwright test --list
