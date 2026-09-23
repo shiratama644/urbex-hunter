@@ -39,3 +39,6 @@ jobs:
 
       - name: Unit tests
         run: pnpm run test
+
+      - name: E2E discovery (--list, browser not required)
+        run: pnpm exec playwright test --list

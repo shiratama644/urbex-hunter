@@ -48,7 +48,7 @@ Next.js (App Router) + PostgreSQL(Drizzle) + Tailwind v4 (M3 Expressive) + Leafl
 | **2** | API / DB 強化（facets キャッシュ・近隣・seed 冪等・index） | 完了 — 詳細は [`planning/PHASE2_PLAN.md`](./planning/PHASE2_PLAN.md) |
 | **3** | スクレイパー強化（リトライ・差分・重複排除・ポライトネス） | 完了 — 詳細は [`planning/PHASE3_PLAN.md`](./planning/PHASE3_PLAN.md) |
 | **4** | UI 磨き（M3 トークン整理・motion 予算・フィルタ永続化・免責） | 完了 — 詳細は [`planning/PHASE4_PLAN.md`](./planning/PHASE4_PLAN.md) |
-| **5** | 運用 / 品質（テスト・E2E・監視・workflow 可観測性） | 未着手（EM1-F で土台） |
+| **5** | 運用 / 品質（テスト・E2E・監視・workflow 可観測性） | 完了 — 詳細は [`planning/PHASE5_PLAN.md`](./planning/PHASE5_PLAN.md) |
 
 ### Phase 0 — 基盤導入
 
@@ -114,9 +114,9 @@ Next.js (App Router) + PostgreSQL(Drizzle) + Tailwind v4 (M3 Expressive) + Leafl
 
 | ID | タスク | 状態 | 進捗 | 依存 | 完了条件 | 証拠 |
 |---|---|---|---:|---|---|---|
-| OPS-1 | 週次 workflow の可観測性（件数ログ / diff / 失敗通知） | 未着手 | 0% | SCR-3 | `scrape_update.yml` のログで件数と差分が分かる | |
-| QA-1 | テスト基盤導入（Vitest + Testing Library） | 未着手 | 0% | SETUP-5 | `npm run test` が pass。`docs/arch/testing.md` に記録 | |
-| QA-2 | E2E（Playwright）導入と CI gate | 未着手 | 0% | QA-1 | `test:e2e` が CI で実行される。Sandbox では discovery のみ | |
+| OPS-1 | 週次 workflow の可観測性（件数ログ / diff / 失敗通知） | 完了 | 100% | SCR-3 | `scrape_update.yml` が `concurrency` + `GITHUB_STEP_SUMMARY` に `count`/`generatedAt`/`diff --numstat` を出力、commit メッセージに件数、DB sync 分岐の notice | `scrape_update.yml` concurrency + summary 2026-09-23 |
+| QA-1 | テスト基盤導入（Vitest + Testing Library） | 完了 | 100% | SETUP-5 | `pnpm run test` 37 passed（`spots-repo` 26 + `scrape` 11）、`vitest.config.ts` と `vitest.setup.ts` が稼働 | `docs/arch/testing.md` 実装に更新 2026-09-23 |
+| QA-2 | E2E（Playwright）導入と CI gate | 完了 | 100% | QA-1 | `pnpm exec playwright test --list` で 2 specs がリスト、CI で `quality-gates.yml` の discovery gate が実行 | `playwright.config.ts` + `e2e/smoke.spec.ts` + `quality-gates.yml` 2026-09-23 |
 
 ---
 

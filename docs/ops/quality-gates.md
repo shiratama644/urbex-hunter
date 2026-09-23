@@ -11,21 +11,21 @@
 | Typecheck | `pnpm run typecheck` | `tsc --noEmit` が 0 error | commit 前 / CI |
 | Biome | `pnpm run ci` | `biome ci .` が 0 error | commit 前 / CI |
 | Build | `pnpm run build` | `next build` が成功（`.next/` 生成） | commit 前 / CI |
-| Unit | `pnpm run test`（EM1-F 導入後） | Vitest が全 pass | commit 前 / CI |
-| Coverage | `pnpm run test:coverage`（導入後） | threshold を満たす | CI |
-| E2E discovery | `pnpm run test:e2e -- --list`（導入後） | spec 数が期待どおり | Local / CI（browser 不要） |
-| E2E browser | `pnpm run test:e2e`（導入後） | Playwright が全 pass | CI / 実環境のみ（Sandbox では未実行扱い） |
+| Unit | `pnpm run test` | Vitest 37 passed（`spots-repo` 26 + `scrape` 11） | commit 前 / CI |
+| Coverage | `pnpm run test:coverage` | `vitest --coverage`（閾値未設定、将来） | CI（任意） |
+| E2E discovery | `pnpm exec playwright test --list` | `e2e/smoke.spec.ts` 1 spec がリストされる | Local / CI（browser 不要） |
+| E2E browser | `pnpm run test:e2e` | Playwright が全 pass（`request` smoke 200 + h1） | CI / 実環境のみ（Sandbox では未実行扱い） |
 
 ## ローカル実行
 
 ```bash
 pnpm run typecheck
-pnpm run ci          # = biome ci .（Biome 2.x / domains: next,react,project）
+pnpm run ci          # = biome ci .（Biome 2.x）
 pnpm run build
-# テスト導入後
-pnpm run test
-pnpm run test:coverage
-pnpm run test:e2e -- --list
+pnpm run test                 # 37 passed 期待
+pnpm run test:coverage        # coverage（閾値未設定）
+pnpm exec playwright test --list   # discovery: 1 spec（browser 不要、Sandbox でも実行可）
+pnpm run test:e2e             # browser 実行（CI のみ）
 ```
 
 ドキュメントのみ変更時は上記をスキップし、`grep -r "docs/arch" --include="*.md"` 等でリンク整合を確認する（AGENTS.md §3.1）。
@@ -49,6 +49,8 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm run ci
       - run: pnpm run build
+      - run: pnpm run test
+      - run: pnpm exec playwright test --list  # discovery のみ、browser 不要
 ```
 
 ## Sandbox 制約との向き合い方
