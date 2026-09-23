@@ -32,7 +32,8 @@
     "scrape": "tsx scripts/scrape.ts",
     "seed": "tsx scripts/seed.ts",
     "test:e2e": "playwright test",
-    "test:e2e:report": "playwright show-report"
+    "test:e2e:report": "playwright show-report",
+    "prepare": "husky"
   },
   "dependencies": {
     "@types/leaflet": "^1.9.22",
@@ -63,10 +64,11 @@
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "^6.1.1",
     "drizzle-kit": "0.31.11",
+    "husky": "^9.1.7",
     "jsdom": "^30.1.0",
     "postcss": "8.5.28",
     "tailwindcss": "4.1.17",
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "vitest": "^5.0.1"
   }
 }
