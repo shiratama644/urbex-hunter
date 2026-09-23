@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { clampBbox } from "@/lib/bbox";
-import { clamp, clampLimit, clampQ, filterGeoJson, parseBbox } from "@/lib/spots-repo";
+import {
+  clamp,
+  clampLimit,
+  clampQ,
+  filterGeoJson,
+  parseBbox,
+  rowToFeature,
+  scoreNearby,
+} from "@/lib/spots-repo";
 import type { SpotFeature } from "@/lib/types";
 import { fearTone } from "@/lib/types";
 
@@ -185,5 +193,104 @@ describe("fearTone", () => {
     expect(fearTone(1.5).label).toBe("低");
     expect(fearTone(null).label).toBe("未評価");
     expect(fearTone(0).label).toBe("未評価");
+  });
+});
+
+describe("scoreNearby (API-2 / DB-2: nearby 4件の除外と距離順)", () => {
+  const base = [
+    makeRaw({ spotcd: 1, coordinates: [139.7, 35.6] }),
+    makeRaw({ spotcd: 2, coordinates: [139.71, 35.61] }), // nearest to 1
+    makeRaw({ spotcd: 3, coordinates: [135.5, 34.6] }), // far
+    makeRaw({ spotcd: 4, coordinates: [139.72, 35.62] }), // 2nd nearest
+    makeRaw({ spotcd: 5, coordinates: [139.69, 35.59] }), // 3rd
+  ];
+
+  it("excludes self spotcd", () => {
+    const res = scoreNearby(base as never, 35.6, 139.7, 1);
+    expect(res.every(({ f }) => f.properties.spotcd !== 1)).toBe(true);
+  });
+
+  it("sorts by Euclidean distance squared", () => {
+    const res = scoreNearby(base as never, 35.6, 139.7, 1);
+    // 2 and 5 are both 0.01° away (tie) — stable sort keeps original order, but allow either
+    const ids = res.map(({ f }) => f.properties.spotcd);
+    expect(ids.slice(0, 2).sort()).toEqual([2, 5]);
+    expect(ids.slice(2)).toEqual([4, 3]);
+  });
+
+  it("limit 4 is applied by caller (slice)", () => {
+    const res = scoreNearby(base as never, 35.6, 139.7, 99).slice(0, 4);
+    expect(res).toHaveLength(4);
+    expect(res.map(({ f }) => f.properties.spotcd)).not.toContain(99);
+  });
+});
+
+describe("rowToFeature (DB-1: seed 冪等の reversible)", () => {
+  it("maps db row to GeoJSON feature", () => {
+    const row = {
+      spotcd: 123,
+      name: "旧トンネル",
+      kana: "きゅうとんねる",
+      address: "東京都",
+      prefecture: "東京都",
+      city: null,
+      lat: 35.6,
+      lng: 139.7,
+      genre: "トンネル",
+      status: null,
+      phenomena: ["足音"],
+      features: [],
+      totalScore: 80,
+      nationalRank: 10,
+      prefRank: 2,
+      fearRating: 3.8,
+      ratingCount: 50,
+      outline: null,
+      comment: null,
+      imageUrl: null,
+      sourceUrl: "https://ghostmap.jp/spotdetail.php?spotcd=123",
+      updatedAt: new Date(),
+    } as never;
+    const feat = rowToFeature(row);
+    expect(feat.geometry.coordinates).toEqual([139.7, 35.6]);
+    expect(feat.properties.spotcd).toBe(123);
+    expect(feat.properties.fearRating).toBe(3.8);
+  });
+});
+
+describe("filterGeoJson complex (API-1: N+1代替の in-memory 絞り込み)", () => {
+  const base = [
+    makeRaw({
+      spotcd: 1,
+      genre: "トンネル",
+      prefecture: "東京都",
+      phenomena: ["足音"],
+      fearRating: 4.5,
+      coordinates: [139.7, 35.6],
+    }),
+    makeRaw({
+      spotcd: 2,
+      genre: "トンネル",
+      prefecture: "大阪府",
+      phenomena: ["足音"],
+      fearRating: 2.0,
+      coordinates: [135.5, 34.6],
+    }),
+    makeRaw({
+      spotcd: 3,
+      genre: "住居",
+      prefecture: "東京都",
+      phenomena: ["気配"],
+      fearRating: 3.8,
+      coordinates: [139.8, 35.7],
+    }),
+  ];
+  it("phenomenon + minRating 複合で絞り込む", () => {
+    const res = filterGeoJson(base, { phenomenon: "足音", minRating: 4 });
+    expect(res.map((f) => f.properties.spotcd)).toEqual([1]);
+  });
+  it("genre + pref + q 複合で 1件に絞る（q は name にヒット）", () => {
+    const res = filterGeoJson(base, { genre: ["トンネル"], pref: ["東京都"], q: "トンネル" });
+    expect(res.map((f) => f.properties.spotcd)).toEqual([1]);
   });
 });

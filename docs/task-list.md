@@ -45,7 +45,7 @@ Next.js (App Router) + PostgreSQL(Drizzle) + Tailwind v4 (M3 Expressive) + Leafl
 | **0** | 基盤導入（zip 展開・AGENTS/.agent/docs 移植・疎通） | 完了（SETUP-0〜5 / `2b2bd43` / `npm run build` pass） |
 | **EM1** | **Bug fixes**（監査 P0/P1 全解消 + P2 選別） | 完了— 詳細は [`audit/EM1-bug-report.md`](./audit/EM1-bug-report.md) / [`planning/EM1_PLAN.md`](./planning/EM1_PLAN.md) |
 | **1** | 地図の堅牢化（bbox/クラスタ/SSR分離/a11y/パフォーマンス） | 完了 — 詳細は [`planning/PHASE1_PLAN.md`](./planning/PHASE1_PLAN.md) |
-| **2** | API / DB 強化（facets キャッシュ・近隣・seed 冪等・index） | 未着手（EM1-B で一部先行） |
+| **2** | API / DB 強化（facets キャッシュ・近隣・seed 冪等・index） | 完了 — 詳細は [`planning/PHASE2_PLAN.md`](./planning/PHASE2_PLAN.md) |
 | **3** | スクレイパー強化（リトライ・差分・重複排除・ポライトネス） | 未着手（EM1-C で一部先行） |
 | **4** | UI 磨き（M3 トークン整理・motion 予算・フィルタ永続化・免責） | 未着手（EM1-D で一部先行） |
 | **5** | 運用 / 品質（テスト・E2E・監視・workflow 可観測性） | 未着手（EM1-F で土台） |
@@ -88,10 +88,10 @@ Next.js (App Router) + PostgreSQL(Drizzle) + Tailwind v4 (M3 Expressive) + Leafl
 
 | ID | タスク | 状態 | 進捗 | 依存 | 完了条件 | 証拠 |
 |---|---|---|---:|---|---|---|
-| API-1 | facets キャッシュと N+1 / COUNT 最適化 | 未着手 | 0% | SETUP-5 | `getFacets` の集計が重くない。再検証戦略が adr に記録 | |
-| API-2 | 近隣4件の距離計算と除外ロジックのテスト | 未着手 | 0% | API-1 | 同一 spotcd を除外し距離順で4件 | |
-| DB-1 | seed の冪等性と advisory lock の検証 | 未着手 | 0% | SETUP-5 | 並列 seed で重複しない | |
-| DB-2 | index（pref/genre/bbox）の EXPLAIN 検証 | 未着手 | 0% | DB-1 | `EXPLAIN` で index が効いている | |
+| API-1 | facets キャッシュと N+1 / COUNT 最適化 | 完了 | 100% | SETUP-5 | `getFacets` の集計が重くない。再検証戦略が adr に記録 | `unstable_cache 3600` + GIN コメント / `data-model.md` |
+| API-2 | 近隣4件の距離計算と除外ロジックのテスト | 完了 | 100% | API-1 | 同一 spotcd を除外し距離順で4件 | `scoreNearby` pure helper + vitest 3 cases |
+| DB-1 | seed の冪等性と advisory lock の検証 | 完了 | 100% | SETUP-5 | 並列 seed で重複しない | `pg_advisory_xact_lock` + onConflictDoUpdate / `rowToFeature` test |
+| DB-2 | index（pref/genre/bbox）の EXPLAIN 検証 | 完了 | 100% | DB-1 | `EXPLAIN` で index が効いている | `spots_*_idx` + `drizzle/0002_enable_pg_trgm.sql` GIN 雛形 |
 
 ### Phase 3 — スクレイパー強化
 

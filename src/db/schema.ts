@@ -42,6 +42,11 @@ export const spots = pgTable(
     index("spots_pref_idx").on(t.prefecture),
     index("spots_genre_idx").on(t.genre),
     index("spots_bbox_idx").on(t.lat, t.lng),
+    // 将来の高速化（5k+ で効く）— pg_trgm + GIN は CONCURRENTLY で手動適用（Phase 2 DB-2）
+    // Drizzle は `index(...).concurrently()` をサポートするが、生成 SQL は要確認 [1](https://dev.to/whoffagents/zero-downtime-postgres-migrations-with-drizzle-orm-22ga)
+    // 例: CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    //     CREATE INDEX CONCURRENTLY spots_name_trgm_idx ON spots USING gin (name gin_trgm_ops);
+    //     CREATE INDEX CONCURRENTLY spots_phenomena_gin_idx ON spots USING gin (phenomena);
   ]
 );
 

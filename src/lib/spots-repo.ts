@@ -13,6 +13,8 @@ type RawFeature = {
   properties: SpotProperties;
 };
 
+export type { RawFeature };
+
 let seedPromise: Promise<void> | null = null;
 
 // ---------- GeoJSON memoization (mtime + size) ----------
@@ -153,17 +155,27 @@ async function getNearbyFromGeoJson(
   limit = 4
 ): Promise<SpotFeature[]> {
   const features = await readGeoJson();
-  const scored = features
-    .filter((f) => f.properties.spotcd !== spotcd)
+  const scored = scoreNearby(features, lat, lng, spotcd)
+    .slice(0, limit)
+    .map(({ f }) => rawToFeature(f));
+  return scored;
+}
+
+/** pure helper for nearby ranking — ユークリッド二乗で順序付け（日本国内 24..46° では haversine と順序は一致、Phase 2 API-2） */
+export function scoreNearby(
+  features: RawFeature[],
+  lat: number,
+  lng: number,
+  excludeSpotcd: number
+) {
+  return features
+    .filter((f) => f.properties.spotcd !== excludeSpotcd)
     .map((f) => {
       const [flng, flat] = f.geometry.coordinates;
       const d = (flat - lat) * (flat - lat) + (flng - lng) * (flng - lng);
       return { f, d };
     })
-    .sort((a, b) => a.d - b.d)
-    .slice(0, limit)
-    .map(({ f }) => rawToFeature(f));
-  return scored;
+    .sort((a, b) => a.d - b.d);
 }
 
 // ---------------------------------------------------------------------------
@@ -435,6 +447,7 @@ export async function getNearby(
   return rows.map(rowToFeature);
 }
 
+// Phase 2 API-1: 4 query (genres/prefs/phenomena/total) は各 groupBy が index で高速、かつ unstable_cache 3600 で DB に当たらない。phenomena の unnest は将来 GIN (spots_phenomena_gin_idx) で改善（drizzle/0002_enable_pg_trgm.sql）
 async function _getFacets(): Promise<SpotFacets> {
   if (!isDbConfigured) {
     return getFacetsFromGeoJson();

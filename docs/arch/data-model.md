@@ -35,7 +35,8 @@ export const spots = pgTable("spots", {
 
 - `spotcd` の重複は **upsert**（最新で上書き）。`drizzle-orm` の `onConflictDoUpdate` を使う。
 - `phenomena` / `features` は `text[]`。空配列 default。
-- index は `prefecture` / `genre` / `(lat,lng)`。EM1-B で `readGeoJson` は `stat.mtimeMs+size` メモ化、`getFacets` は `unstable_cache` 1h で 4クエリを削減。将来は `pg_trgm`（`gin_trgm_ops`）や `phenomena` の GIN を ADR で検討。
+- index は `prefecture` / `genre` / `(lat,lng)`。EM1-B で `readGeoJson` は `stat.mtimeMs+size` メモ化、`getFacets` は `unstable_cache` 1h で 4クエリを削減。
+- Phase 2 DB-2 で `pg_trgm`（`gin_trgm_ops`）による `ilike '%q%'` 高速化（GIN で 22ms vs 268ms seq scan [1](https://imhoratiu.wordpress.com/2026/01/01/postgresql-trigram-similarity-vs-pattern-matching-a-performance-comparison/)）と `phenomena` の `GIN` を追加 — 752件では seq scan でも <5ms だが 5k+ で効く。`drizzle/0002_enable_pg_trgm.sql` に `CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE INDEX CONCURRENTLY ... gin_trgm_ops` の雛形を配置し、手動で transaction 外で適用する（`CONCURRENTLY` は transaction 内で不可 [2](https://ecosire.com/blog/drizzle-migrations-zero-downtime)）。Drizzle の `index(...).concurrently()` も参照 [3](https://dev.to/whoffagents/zero-downtime-postgres-migrations-with-drizzle-orm-22ga)。
 
 ## GeoJSON（補助的ソース・オブ・トゥルース: `data/spots.geojson`）
 
