@@ -1,22 +1,14 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
-import {
-  Ghost,
-  Layers,
-  Loader2,
-  LocateFixed,
-  Search,
-  SlidersHorizontal,
-  Star,
-  X,
-} from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DisclaimerDialog from "@/components/DisclaimerDialog";
 import FilterPanel from "@/components/FilterPanel";
+import MaterialIcon from "@/components/MaterialIcon";
 import SpotDetailSheet from "@/components/SpotDetailSheet";
 import { type Bbox, clampBbox } from "@/lib/bbox";
+import { m3Spring, m3Stagger } from "@/lib/motion";
 import { genreEmoji, type SpotCollection, type SpotFacets, type SpotFeature } from "@/lib/types";
 
 const MapClient = dynamic(() => import("@/components/Map/MapClient"), {
@@ -24,7 +16,9 @@ const MapClient = dynamic(() => import("@/components/Map/MapClient"), {
   loading: () => (
     <div className="grid h-full w-full place-items-center bg-m3-surface-dim">
       <div className="flex flex-col items-center gap-3 text-m3-on-surface-variant">
-        <Loader2 className="animate-spin text-m3-primary" size={28} />
+        <span className="animate-spin">
+          <MaterialIcon name="progress_activity" size={28} className="text-m3-primary" />
+        </span>
         <p className="text-body-md">地図を召喚中...</p>
       </div>
     </div>
@@ -37,6 +31,7 @@ type Props = {
 };
 
 export default function GhostMapApp({ initialSpots, facets }: Props) {
+  const shouldReduce = useReducedMotion();
   const [spots, setSpots] = useState<SpotFeature[]>(initialSpots);
   const [loadingSpots, setLoadingSpots] = useState(false);
   const [genres, setGenres] = useState<string[]>([]);
@@ -312,15 +307,20 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
           ref={suggestRef}
           className="pointer-events-auto mx-auto flex w-full max-w-2xl flex-col"
         >
-          {/* M3 Search Bar */}
-          <div
-            className={`flex items-center gap-2 border border-m3-outline-variant/40 bg-m3-surface-container-high/92 px-4 shadow-m3-3 backdrop-blur-xl transition-all duration-300 ${
+          {/* M3 Search Bar — shape morphs when suggestions open (M3E expressive morph) */}
+          <motion.div
+            layout={!shouldReduce}
+            transition={shouldReduce ? { duration: 0 } : m3Spring.defaultSpatial}
+            className={`flex items-center gap-2 border border-m3-outline-variant/40 bg-m3-surface-container-high/92 px-4 shadow-m3-3 backdrop-blur-xl ${
               suggestOpen && suggestions.length
                 ? "rounded-t-m3-xl rounded-b-none"
                 : "rounded-m3-full"
             }`}
+            style={{
+              borderRadius: suggestOpen && suggestions.length ? "28px 28px 0 0" : "999px",
+            }}
           >
-            <Ghost size={20} className="shrink-0 text-m3-primary" />
+            <MaterialIcon name="skull" size={20} className="shrink-0 text-m3-primary" fill={1} />
             <input
               value={query}
               onChange={(e) => {
@@ -363,35 +363,50 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
               aria-autocomplete="list"
             />
             {query ? (
-              <button
+              <motion.button
                 type="button"
                 aria-label="検索をクリア"
                 onClick={() => {
                   setQuery("");
                   setSuggestions([]);
                 }}
+                whileHover={shouldReduce ? undefined : { scale: 1.08 }}
+                whileTap={shouldReduce ? undefined : { scale: 0.92 }}
+                transition={m3Spring.responsive}
                 className="grid size-8 place-items-center rounded-m3-full text-m3-on-surface-variant transition hover:bg-m3-surface-container-highest"
               >
-                <X size={16} />
-              </button>
+                <MaterialIcon name="close" size={16} />
+              </motion.button>
             ) : (
-              <Search size={18} className="text-m3-on-surface-variant" />
+              <MaterialIcon name="search" size={18} className="text-m3-on-surface-variant" />
             )}
-          </div>
+          </motion.div>
 
           <AnimatePresence>
             {suggestOpen && suggestions.length ? (
               <motion.ul
                 id="ghost-suggest-list"
                 role="listbox"
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
+                initial={shouldReduce ? { opacity: 0 } : { opacity: 0, y: -10, scale: 0.98 }}
+                animate={shouldReduce ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+                exit={shouldReduce ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.98 }}
+                transition={shouldReduce ? { duration: 0.12 } : m3Spring.defaultSpatial}
                 className="thin-scrollbar max-h-[46dvh] overflow-y-auto rounded-b-m3-xl border border-t-0 border-m3-outline-variant/40 bg-m3-surface-container-high/96 shadow-m3-3 backdrop-blur-xl"
               >
                 {suggestions.map((s, idx) => (
-                  // biome-ignore format lint: listbox > li[role=option] is valid ARIA pattern (MAP-4)
-                  <li key={s.properties.spotcd} id={`ghost-suggest-${s.properties.spotcd}`} role="option" aria-selected={idx === activeIndex}>
+                  <motion.li
+                    key={s.properties.spotcd}
+                    id={`ghost-suggest-${s.properties.spotcd}`}
+                    role="option"
+                    aria-selected={idx === activeIndex}
+                    initial={shouldReduce ? { opacity: 0 } : { opacity: 0, x: -6 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={
+                      shouldReduce
+                        ? { duration: 0.12 }
+                        : { ...m3Spring.responsive, delay: m3Stagger(idx, 28) }
+                    }
+                  >
                     <button
                       type="button"
                       onClick={() => openSpot(s, true)}
@@ -411,60 +426,91 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
                           {s.properties.address ?? s.properties.prefecture}
                         </span>
                       </span>
-                      <span className="shrink-0 text-label-md text-m3-secondary">
-                        ★{s.properties.fearRating?.toFixed(1) ?? "–"}
+                      <span className="flex items-center gap-0.5 shrink-0 text-label-md text-m3-secondary">
+                        <MaterialIcon
+                          name="star"
+                          size={14}
+                          fill={1}
+                          className="text-m3-secondary"
+                        />
+                        {s.properties.fearRating?.toFixed(1) ?? "–"}
                       </span>
                     </button>
-                  </li>
+                  </motion.li>
                 ))}
               </motion.ul>
             ) : null}
           </AnimatePresence>
         </div>
 
-        {/* M3 Filter Chips (横スクロール) */}
-        <div className="pointer-events-auto no-scrollbar -mx-3 flex gap-2 overflow-x-auto px-3 md:mx-0 md:justify-center md:px-0">
-          <button
+        {/* M3 Filter Chips — responsive spring + stagger */}
+        <motion.div
+          className="pointer-events-auto no-scrollbar -mx-3 flex gap-2 overflow-x-auto px-3 md:mx-0 md:justify-center md:px-0"
+          initial={shouldReduce ? undefined : { opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={shouldReduce ? { duration: 0.15 } : m3Spring.defaultSpatial}
+        >
+          <motion.button
             type="button"
             onClick={() => setFilterOpen(true)}
             aria-expanded={filterOpen}
             aria-controls="filter-panel"
-            className={`flex shrink-0 items-center gap-1.5 rounded-m3-full border px-3.5 py-2 text-label-lg shadow-m3-1 backdrop-blur-xl transition active:scale-95 ${
+            whileHover={shouldReduce ? undefined : { scale: 1.02 }}
+            whileTap={shouldReduce ? undefined : { scale: 0.97 }}
+            transition={m3Spring.responsive}
+            className={`flex shrink-0 items-center gap-1.5 rounded-m3-full border px-3.5 py-2 text-label-lg shadow-m3-1 backdrop-blur-xl m3-pressable ${
               activeFilterCount
                 ? "border-transparent bg-m3-primary text-m3-on-primary"
                 : "border-m3-outline-variant/50 bg-m3-surface-container-high/90 text-m3-on-surface"
             }`}
           >
-            <SlidersHorizontal size={15} />
+            <MaterialIcon name="tune" size={15} fill={activeFilterCount ? 1 : 0} />
             フィルター
             {activeFilterCount ? (
-              <span className="ml-0.5 rounded-m3-full bg-m3-on-primary/20 px-1.5 text-label-sm">
+              <motion.span
+                initial={{ scale: 0.8 }}
+                animate={{ scale: 1 }}
+                transition={m3Spring.expressive}
+                className="ml-0.5 rounded-m3-full bg-m3-on-primary/20 px-1.5 text-label-sm"
+              >
                 {activeFilterCount}
-              </span>
+              </motion.span>
             ) : null}
-          </button>
+          </motion.button>
 
-          <button
+          <motion.button
             type="button"
             onClick={() => setMinRating((v) => (v >= 4 ? 0 : 4))}
-            className={`flex shrink-0 items-center gap-1.5 rounded-m3-full border px-3.5 py-2 text-label-lg shadow-m3-1 backdrop-blur-xl transition active:scale-95 ${
+            whileHover={shouldReduce ? undefined : { scale: 1.02 }}
+            whileTap={shouldReduce ? undefined : { scale: 0.97 }}
+            transition={m3Spring.responsive}
+            className={`flex shrink-0 items-center gap-1.5 rounded-m3-full border px-3.5 py-2 text-label-lg shadow-m3-1 backdrop-blur-xl m3-pressable ${
               minRating >= 4
                 ? "border-transparent bg-m3-secondary-container text-m3-on-secondary-container"
                 : "border-m3-outline-variant/50 bg-m3-surface-container-high/90 text-m3-on-surface"
             }`}
           >
-            <Star size={15} />
+            <MaterialIcon name="kid_star" size={15} fill={minRating >= 4 ? 1 : 0} />
             怖さ 4.0+
-          </button>
+          </motion.button>
 
-          {topGenres.map((g) => {
+          {topGenres.map((g, i) => {
             const active = genres.includes(g.value);
             return (
-              <button
+              <motion.button
                 key={g.value}
                 type="button"
                 onClick={() => toggleGenre(g.value)}
-                className={`flex shrink-0 items-center gap-1.5 rounded-m3-full border px-3.5 py-2 text-label-lg shadow-m3-1 backdrop-blur-xl transition active:scale-95 ${
+                initial={shouldReduce ? undefined : { opacity: 0, scale: 0.92 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={
+                  shouldReduce
+                    ? { duration: 0.12 }
+                    : { ...m3Spring.responsive, delay: m3Stagger(i, 32) }
+                }
+                whileHover={shouldReduce ? undefined : { scale: 1.03, y: -1 }}
+                whileTap={shouldReduce ? undefined : { scale: 0.96 }}
+                className={`flex shrink-0 items-center gap-1.5 rounded-m3-full border px-3.5 py-2 text-label-lg shadow-m3-1 backdrop-blur-xl m3-pressable ${
                   active
                     ? "border-transparent bg-m3-primary-container text-m3-on-primary-container"
                     : "border-m3-outline-variant/50 bg-m3-surface-container-high/90 text-m3-on-surface"
@@ -473,60 +519,80 @@ export default function GhostMapApp({ initialSpots, facets }: Props) {
                 <span>{genreEmoji(g.value)}</span>
                 {g.value}
                 <span className="text-label-sm text-m3-on-surface-variant">{g.count}</span>
-              </button>
+              </motion.button>
             );
           })}
-        </div>
+        </motion.div>
       </div>
 
       {/* ---------------- ステータスピル ---------------- */}
-      <div className="pointer-events-none absolute bottom-4 left-1/2 z-[1050] -translate-x-1/2 md:bottom-5">
+      <motion.div
+        className="pointer-events-none absolute bottom-4 left-1/2 z-[1050] -translate-x-1/2 md:bottom-5"
+        initial={shouldReduce ? undefined : { opacity: 0, y: 8, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={shouldReduce ? { duration: 0.2 } : m3Spring.expressive}
+      >
         <div className="flex items-center gap-2 rounded-m3-full border border-m3-outline-variant/40 bg-m3-surface-container-high/90 px-4 py-2 text-label-md text-m3-on-surface shadow-m3-2 backdrop-blur-xl">
           {loadingSpots ? (
-            <Loader2 size={14} className="animate-spin text-m3-primary" />
+            <span className="animate-spin">
+              <MaterialIcon name="progress_activity" size={14} className="text-m3-primary" />
+            </span>
           ) : (
-            <Ghost size={14} className="text-m3-primary" />
+            <MaterialIcon name="skull" size={14} className="text-m3-primary" fill={0} />
           )}
           <span>
             表示中 <strong className="font-semibold">{spots.length}</strong> / 全国{" "}
             {facets.total.toLocaleString("ja-JP")} スポット
           </span>
         </div>
-      </div>
+      </motion.div>
 
       {/* 空状態（MAP-2: フィルタで 0 件時の fallback） */}
-      {!loadingSpots && spots.length === 0 ? (
-        <div
-          role="status"
-          aria-live="polite"
-          className="pointer-events-none absolute top-1/2 left-1/2 z-[1040] -translate-x-1/2 -translate-y-1/2 rounded-m3-xl border border-m3-outline-variant/30 bg-m3-surface-container-high/90 px-6 py-5 text-center shadow-m3-3 backdrop-blur-xl"
-        >
-          <Ghost className="mx-auto mb-2 text-m3-outline" size={28} />
-          <p className="text-title-sm text-m3-on-surface">該当するスポットがありません</p>
-          <p className="mt-1 text-body-sm text-m3-on-surface-variant">
-            フィルターや地図の範囲を調整してください
-          </p>
-        </div>
-      ) : null}
+      <AnimatePresence>
+        {!loadingSpots && spots.length === 0 ? (
+          <motion.div
+            role="status"
+            aria-live="polite"
+            initial={shouldReduce ? { opacity: 0 } : { opacity: 0, scale: 0.94, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={shouldReduce ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
+            transition={shouldReduce ? { duration: 0.15 } : m3Spring.expressive}
+            className="pointer-events-none absolute top-1/2 left-1/2 z-[1040] -translate-x-1/2 -translate-y-1/2 rounded-m3-xl border border-m3-outline-variant/30 bg-m3-surface-container-high/90 px-6 py-5 text-center shadow-m3-3 backdrop-blur-xl"
+          >
+            <MaterialIcon name="search_off" size={28} className="mx-auto mb-2 text-m3-outline" />
+            <p className="text-title-sm text-m3-on-surface">該当するスポットがありません</p>
+            <p className="mt-1 text-body-sm text-m3-on-surface-variant">
+              フィルターや地図の範囲を調整してください
+            </p>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       {/* ---------------- FAB 群 ---------------- */}
       <div className="absolute right-3 bottom-24 z-[1100] flex flex-col gap-3 md:right-4 md:bottom-28">
-        <button
+        <motion.button
           type="button"
           onClick={() => setTile((t) => (t === "dark" ? "light" : "dark"))}
           aria-label="地図スタイル切替"
-          className="grid size-12 place-items-center rounded-m3-lg bg-m3-surface-container-high/92 text-m3-on-surface shadow-m3-3 backdrop-blur-xl transition hover:bg-m3-surface-container-highest active:scale-95"
+          whileHover={shouldReduce ? undefined : { scale: 1.06, y: -1 }}
+          whileTap={shouldReduce ? undefined : { scale: 0.94 }}
+          transition={m3Spring.responsive}
+          className="grid size-12 place-items-center rounded-m3-lg bg-m3-surface-container-high/92 text-m3-on-surface shadow-m3-3 backdrop-blur-xl m3-pressable"
         >
-          <Layers size={20} />
-        </button>
-        <button
+          <MaterialIcon name={tile === "dark" ? "light_mode" : "dark_mode"} size={20} />
+        </motion.button>
+        <motion.button
           type="button"
           onClick={locate}
           aria-label="現在地へ移動"
-          className="grid size-16 place-items-center rounded-m3-xl bg-m3-primary-container text-m3-on-primary-container shadow-m3-4 transition hover:brightness-110 active:scale-95"
+          whileHover={shouldReduce ? undefined : { scale: 1.04, y: -2 }}
+          whileTap={shouldReduce ? undefined : { scale: 0.93 }}
+          transition={m3Spring.expressive}
+          className="grid size-16 place-items-center rounded-m3-xl bg-m3-primary-container text-m3-on-primary-container shadow-m3-4 m3-pressable"
+          style={{ borderRadius: 28 }}
         >
-          <LocateFixed size={24} />
-        </button>
+          <MaterialIcon name="my_location" size={24} />
+        </motion.button>
       </div>
 
       {/* ---------------- 詳細シート ---------------- */}

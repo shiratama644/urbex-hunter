@@ -44,7 +44,7 @@
     "framer-motion": "^13.4.0",
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
-    "lucide-react": "^1.47.0",
+    "material-symbols": "^0.47.5",
     "next": "16.3.5",
     "pg": "8.20.0",
     "react": "19.2.6",
