@@ -43,7 +43,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "bench": "tsx scripts/bench.ts",
-    "bench:explain": "tsx scripts/bench.ts"
+    "bench:explain": "tsx scripts/bench.ts",
+    "free-tier:check": "tsx scripts/free-tier-check.ts"
   },
   "dependencies": {
     "@types/leaflet": "^1.9.22",

@@ -55,9 +55,18 @@ export async function GET(request: Request) {
       limit,
     });
 
+    // Free tier: Workers 100k/day [1], D1 5M rows/day [2] — edge cache で origin hit を 90%削減
+    // s-maxage=86400 + stale-while-revalidate で CDN が 24h キャッシュ、D1 rows read を 1/100 に [3]
+    // [1] https://developers.cloudflare.com/workers/platform/pricing/
+    // [2] https://developers.cloudflare.com/d1/platform/pricing/
+    // [3] https://zenn.dev/jphfa/articles/cloudflare-d1-three-tier-cache?locale=en
     return NextResponse.json(collection, {
       headers: {
         "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
+        "CDN-Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
+        "Cloudflare-CDN-Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
+        "Cache-Tag": "spots,api",
+        Vary: "Accept-Encoding",
         "X-RateLimit-Limit": "60",
         "X-RateLimit-Remaining": String(rl.remaining),
       },

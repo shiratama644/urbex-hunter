@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gte, inArray, like, or, type SQL, sql } from "drizz
 import { unstable_cache } from "next/cache";
 import { db, getD1Binding, isDbConfigured, isDbConfiguredAsync } from "@/db";
 import { type NewSpotRow, type SpotRow, spotPhenomena, spots } from "@/db/schema";
+import { FACETS_KV_KEY, FACETS_TTL_SEC, kvGet, kvPut } from "@/lib/kv-cache";
 import type { SpotCollection, SpotFacets, SpotFeature, SpotProperties } from "@/lib/types";
 
 // D1対応: Workersでは env.DB binding、ローカル/vitestでは GeoJSON フォールバック
@@ -894,13 +895,25 @@ async function _getFacets(): Promise<SpotFacets> {
   };
 }
 
-// 1時間 cache（事実: unstable_cache + tags + revalidate 3600 が推奨）[1](https://nextjs.org/docs/app/api-reference/functions/unstable_cache)
-// D1 の read は eventual consistency だが facets は 3600s cache で D1 への hit を 1/3600 に削減
-export const getFacets: () => Promise<SpotFacets> = unstable_cache(
-  _getFacets,
-  ["urbex-facets-v2"],
-  {
-    tags: ["facets"],
-    revalidate: 3600,
-  }
-);
+// Free tier: D1 reads 5M/day [1], KV reads 100k/day [2], Workers 100k/day [2]
+// 3-layer cache (mem → KV global <1ms → D1+unstable_cache) で 87%削減 [3]
+// facets は 低頻度・高再利用 のため KV に置くと D1 hit を 1/3600 から 1/86400 に削減可能。free tier では TTL=86400 推奨。
+// Paid では 3600 でも可。KV writes は 1k/day のため facets のみ対象。
+// [1] https://developers.cloudflare.com/d1/platform/pricing/
+// [2] https://developers.cloudflare.com/workers/platform/pricing/
+// [3] https://zenn.dev/jphfa/articles/cloudflare-d1-three-tier-cache?locale=en
+const _cachedFacets = unstable_cache(_getFacets, ["urbex-facets-v2"], {
+  tags: ["facets"],
+  revalidate: 3600, // free tier でさらに節約するなら 86400 に
+});
+
+export async function getFacets(): Promise<SpotFacets> {
+  // Layer2: KV global cache (<1ms) — Workers isolate を跨いで共有 [3]
+  const kvHit = await kvGet<SpotFacets>(FACETS_KV_KEY);
+  if (kvHit) return kvHit;
+  // Layer3: unstable_cache (mem + D1 batch 1 RTT)
+  const data = await _cachedFacets();
+  // 非同期で KV に書き込み (1k writes/day のため facets のみ)
+  await kvPut(FACETS_KV_KEY, data, FACETS_TTL_SEC);
+  return data;
+}
