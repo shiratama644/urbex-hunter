@@ -1,197 +1,97 @@
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+import { drizzle as drizzleD1 } from "drizzle-orm/d1";
+import { cache } from "react";
+import * as schema from "./schema";
 
-// Hyperdrive対応: `wrangler hyperdrive create` で生成した Hyperdrive binding は
-// `env.HYPERDRIVE.connectionString` で取得するのが公式推奨 [1](https://developers.cloudflare.com/workers/databases/third-party-integrations/neon/)
-// OpenNextでは `getCloudflareContext().env.HYPERDRIVE` でアクセス [2](https://opennext.js.org/cloudflare/howtos/db)
-// - ローカル: `process.env.DATABASE_URL` を使う（`.dev.vars` / `.env.local`）
-// - Workers本番: Hyperdrive binding を優先し、未設定なら `DATABASE_URL` フォールバック
-// - `pg@>=8.16.3` が必須 [1](https://developers.cloudflare.com/workers/databases/third-party-integrations/neon/)
+// D1 (Cloudflare Workers) — vinext / Workers ネイティブ
+// - 本番: `env.DB` binding (wrangler.jsonc d1_databases) [1](https://developers.cloudflare.com/workers/wrangler/configuration/#d1-databases)
+// - ローカル: `wrangler d1 execute --local` または `vite dev` の Miniflare で同じ binding が提供される
+// - 未設定時: GeoJSON フォールバック（`src/data/spots.json`）
+// vinext では `cloudflare:workers` から env を取得するのが推奨だが、OpenNext互換の `getCloudflareContext` も try
+// vitest / build 時は binding が無いため常にフォールバック
 
-// Note: `getCloudflareContext` は Workers外（vitest / next build）では throw する
-// ため、取得は関数内で try/catch する。top-level import は安全（OpenNextがハンドル）。
-import { getCloudflareContext } from "@opennextjs/cloudflare";
+// Minimal type for D1 — actual is from @cloudflare/workers-types, but `any` is enough for drizzle-orm/d1
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type D1Database = any;
 
-function getHyperdriveConnectionStringSync(): string | undefined {
+function getD1BindingSync(): D1Database | undefined {
+  // vinext / Workers: cloudflare:workers (wrangler.jsonc d1_databases binding: DB)
   try {
-    const ctx = getCloudflareContext();
-    const env = ctx?.env as Record<string, unknown> | undefined;
-    const hd = env?.HYPERDRIVE as { connectionString?: string } | undefined;
-    if (hd?.connectionString) return hd.connectionString;
-  } catch {
-    // not in Workers context (vitest / build)
-  }
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const cw = require("cloudflare:workers") as { env?: Record<string, unknown> };
+    const db = cw?.env?.DB as D1Database | undefined;
+    if (db) return db;
+  } catch {}
   return undefined;
 }
 
-async function getHyperdriveConnectionStringAsync(): Promise<string | undefined> {
+async function getD1BindingAsyncInner(): Promise<D1Database | undefined> {
   try {
-    const ctx = await getCloudflareContext({ async: true });
-    const env = ctx?.env as Record<string, unknown> | undefined;
-    const hd = env?.HYPERDRIVE as { connectionString?: string } | undefined;
-    if (hd?.connectionString) return hd.connectionString;
-  } catch {
-    // ignore
-  }
+    const cw = (await import("cloudflare:workers")) as unknown as { env: Record<string, unknown> };
+    const db = (cw as unknown as { env: { DB?: D1Database } }).env?.DB;
+    if (db) return db;
+  } catch {}
   return undefined;
 }
 
-function resolveConnectionStringSync(): string | undefined {
-  return getHyperdriveConnectionStringSync() ?? process.env.DATABASE_URL;
+export function getD1Binding(): D1Database | undefined {
+  return getD1BindingSync();
 }
 
-async function resolveConnectionStringAsync(): Promise<string | undefined> {
-  const hd = await getHyperdriveConnectionStringAsync();
-  return hd ?? process.env.DATABASE_URL;
-}
-
-// ---- Public helpers ----
-export function getConnectionString(): string | undefined {
-  return resolveConnectionStringSync();
-}
-
-export async function getConnectionStringAsync(): Promise<string | undefined> {
-  return resolveConnectionStringAsync();
+export async function getD1BindingAsync(): Promise<D1Database | undefined> {
+  return getD1BindingAsyncInner();
 }
 
 export function isDbConfiguredFn(): boolean {
-  return !!resolveConnectionStringSync();
+  return !!getD1BindingSync();
 }
 
 export async function isDbConfiguredAsync(): Promise<boolean> {
-  const cs = await resolveConnectionStringAsync();
-  return !!cs;
+  const db = await getD1BindingAsync();
+  return !!db;
 }
 
-// 後方互換: 既存コードは `isDbConfigured` を boolean として import しているため、
-// import時のスナップショットを維持しつつ、ランタイムでは上記関数を併用する。
-// テストでは `process.env.DATABASE_URL` を操作して GeoJSON フォールバックを検証するため、
-// この boolean は `DATABASE_URL` の有無と同期する（Hyperdriveはランタイムで追加チェック）。
-const databaseUrlAtImport = process.env.DATABASE_URL;
-export const isDbConfigured = !!databaseUrlAtImport || !!getHyperdriveConnectionStringSync();
+// 後方互換: 既存コードが `isDbConfigured` を boolean として参照しているため、
+// import時のスナップショットを提供（vitestでは false、Workersではリクエスト時に再評価）
+export const isDbConfigured = !!getD1BindingSync();
 
-// ---- Pool / Drizzle ----
-const globalForDb = globalThis as typeof globalThis & {
-  __urbexHunterPool?: Pool;
-  __urbexHunterDb?: ReturnType<typeof drizzle>;
-};
+// 後方互換: `getConnectionString` は D1では不要だが、呼び出し元が参照するためダミー
+export function getConnectionString(): string | undefined {
+  return undefined;
+}
+export async function getConnectionStringAsync(): Promise<string | undefined> {
+  return undefined;
+}
 
-let pool: Pool | null = null;
-let dbInstance: ReturnType<typeof drizzle> | null = null;
+// D1 drizzle — per-request（Workersではコネクションを再利用しない）
+// OpenNext公式は `cache(() => drizzle(env.MY_D1))` を推奨 [2](https://opennext.js.org/cloudflare/howtos/db)
 
-function createPool(cs: string): Pool {
-  // Hyperdriveではリクエストごとに新規Poolを作成し `maxUses: 1` が推奨 [2](https://opennext.js.org/cloudflare/howtos/db)
-  // Node（ローカル）では再利用してコネクションを節約
-  const isHyperdrive = (() => {
-    try {
-      const hd = getHyperdriveConnectionStringSync();
-      return !!hd && hd === cs;
-    } catch {
-      return false;
+export const getDb = cache(() => {
+  const d1 = getD1BindingSync();
+  if (!d1) throw new Error("D1 binding DB is not configured — use GeoJSON fallback");
+  return drizzleD1(d1 as unknown as D1Database, { schema });
+});
+
+export const getDbAsync = cache(async () => {
+  const d1 = await getD1BindingAsync();
+  if (!d1) throw new Error("D1 binding DB is not configured — use GeoJSON fallback");
+  return drizzleD1(d1 as unknown as D1Database, { schema });
+});
+
+// 後方互換: `db` を Proxy で遅延解決（既存 `spots-repo` が `db` を直接 import しているため）
+// 実際は `getDb()` / `getDbAsync()` を使うのが正しいが、Proxyで初回アクセス時に解決する
+export const db: ReturnType<typeof drizzleD1> = new Proxy({} as ReturnType<typeof drizzleD1>, {
+  get(_target, prop) {
+    const d1 = getD1BindingSync();
+    if (!d1) {
+      throw new Error(
+        "D1 binding DB is not configured — use GeoJSON fallback (isDbConfigured === false)"
+      );
     }
-  })();
-  if (isHyperdrive) {
-    return new Pool({ connectionString: cs, maxUses: 1 } as unknown as ConstructorParameters<
-      typeof Pool
-    >[0]);
-  }
-  return new Pool({ connectionString: cs });
-}
+    const real = getDb();
+    const val = (real as unknown as Record<string | symbol, unknown>)[prop];
+    return typeof val === "function" ? (val as (...a: unknown[]) => unknown).bind(real) : val;
+  },
+}) as ReturnType<typeof drizzleD1>;
 
-function getOrCreatePool(cs: string): Pool {
-  if (pool) return pool;
-  // ローカル/Node では singleton を再利用（HMR対応）
-  const p = createPool(cs);
-  pool = p;
-  if (process.env.NODE_ENV !== "production") {
-    globalForDb.__urbexHunterPool = p;
-  }
-  return p;
-}
-
-const initialCs = resolveConnectionStringSync();
-if (initialCs) {
-  const gPool = globalForDb.__urbexHunterPool;
-  pool = gPool ?? getOrCreatePool(initialCs);
-  if (process.env.NODE_ENV !== "production") {
-    globalForDb.__urbexHunterPool = pool;
-  }
-  const gDb = globalForDb.__urbexHunterDb;
-  dbInstance = gDb ?? drizzle(pool);
-  if (process.env.NODE_ENV !== "production") {
-    globalForDb.__urbexHunterDb = dbInstance;
-  }
-}
-
-// Hyperdrive の場合はリクエストごとに新規Poolを作成するため、`getDb()` を使うのが理想
-// 既存コード互換のため `db` も維持するが、Hyperdrive環境では遅延的に再解決する
-export function getDb(): ReturnType<typeof drizzle> {
-  const cs = resolveConnectionStringSync();
-  if (!cs) {
-    throw new Error(
-      "DATABASE_URL is not configured — use GeoJSON fallback (isDbConfigured === false)"
-    );
-  }
-  // Hyperdriveなら毎回新規Pool（maxUses:1）、Nodeなら singleton
-  const isHyperdrive = !!getHyperdriveConnectionStringSync();
-  if (isHyperdrive) {
-    const p = new Pool({ connectionString: cs, maxUses: 1 } as unknown as ConstructorParameters<
-      typeof Pool
-    >[0]);
-    return drizzle(p);
-  }
-  if (dbInstance) return dbInstance;
-  const p = getOrCreatePool(cs);
-  dbInstance = drizzle(p);
-  return dbInstance;
-}
-
-export async function getDbAsync(): Promise<ReturnType<typeof drizzle>> {
-  const cs = await resolveConnectionStringAsync();
-  if (!cs) {
-    throw new Error(
-      "DATABASE_URL is not configured — use GeoJSON fallback (isDbConfigured === false)"
-    );
-  }
-  const hd = await getHyperdriveConnectionStringAsync();
-  const isHyperdrive = !!hd;
-  if (isHyperdrive) {
-    const p = new Pool({ connectionString: cs, maxUses: 1 } as unknown as ConstructorParameters<
-      typeof Pool
-    >[0]);
-    return drizzle(p);
-  }
-  if (dbInstance) return dbInstance;
-  const p = getOrCreatePool(cs);
-  dbInstance = drizzle(p);
-  return dbInstance;
-}
-
-// 後方互換: 既存の `db` import はそのまま動作（Hyperdriveでも初回は singleton を返すが、
-// リクエストごとに `getDb()` を呼ぶ方が正しい。`spots-repo` は `getConnectionString()` で分岐済み）
-export const poolOrNull = pool;
-
-export const db: ReturnType<typeof drizzle> = dbInstance
-  ? dbInstance
-  : (new Proxy(
-      {},
-      {
-        get(_target, prop) {
-          // 遅延解決: 初回アクセス時に Hyperdrive / DATABASE_URL を再評価
-          const cs = resolveConnectionStringSync();
-          if (cs) {
-            const target = getDb();
-            const val = (target as unknown as Record<string | symbol, unknown>)[prop];
-            return typeof val === "function"
-              ? (val as (...a: unknown[]) => unknown).bind(target)
-              : val;
-          }
-          throw new Error(
-            "DATABASE_URL is not configured — use GeoJSON fallback (isDbConfigured === false)"
-          );
-        },
-      }
-    ) as ReturnType<typeof drizzle>);
-
-// 後方互換: 旧 `pool` エクスポート
-export { pool };
+export const poolOrNull = null;
+export const pool = null;

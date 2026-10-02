@@ -1,16 +1,14 @@
-import { and, asc, desc, eq, gte, ilike, inArray, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, like, or, type SQL, sql } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
-import { db, getConnectionStringAsync, isDbConfigured } from "@/db";
+import { db, getD1Binding, isDbConfigured, isDbConfiguredAsync } from "@/db";
 import { type NewSpotRow, type SpotRow, spots } from "@/db/schema";
 import type { SpotCollection, SpotFacets, SpotFeature, SpotProperties } from "@/lib/types";
 
-// Hyperdrive対応: `isDbConfigured` は import時の DATABASE_URL スナップショットだが、
-// Workers本番では Hyperdrive binding が `getConnectionStringAsync()` で取得できるため、
-// ランタイムでは `hasDbAsync()` で判定する [1](https://opennext.js.org/cloudflare/howtos/db)
+// D1対応: Workersでは env.DB binding、ローカル/vitestでは GeoJSON フォールバック
 async function hasDbAsync(): Promise<boolean> {
   if (isDbConfigured) return true;
-  const cs = await getConnectionStringAsync();
-  return !!cs;
+  if (getD1Binding()) return true;
+  return await isDbConfiguredAsync();
 }
 
 // CF Workersでは `node:fs`/`process.cwd()` が存在しないため、静的importでバンドルする。
@@ -213,7 +211,7 @@ export function scoreNearby(
 async function tableReady(): Promise<boolean> {
   if (!(await hasDbAsync())) return false;
   try {
-    await db.execute(sql`select 1 from ${spots} limit 1`);
+    await db.select().from(spots).limit(1);
     return true;
   } catch {
     return false;
@@ -223,7 +221,7 @@ async function tableReady(): Promise<boolean> {
 async function createTableIfMissing() {
   if (!(await hasDbAsync())) return;
   try {
-    await db.execute(sql`
+    await db.run(sql`
     create table if not exists "spots" (
       "spotcd" integer primary key,
       "name" text not null,
@@ -231,12 +229,12 @@ async function createTableIfMissing() {
       "address" text,
       "prefecture" text,
       "city" text,
-      "lat" double precision not null,
-      "lng" double precision not null,
+      "lat" real not null,
+      "lng" real not null,
       "genre" text,
       "status" text,
-      "phenomena" text[] not null default '{}',
-      "features" text[] not null default '{}',
+      "phenomena" text not null default '[]',
+      "features" text not null default '[]',
       "total_score" integer,
       "national_rank" integer,
       "pref_rank" integer,
@@ -246,12 +244,12 @@ async function createTableIfMissing() {
       "comment" text,
       "image_url" text,
       "source_url" text not null,
-      "updated_at" timestamptz not null default now()
+      "updated_at" text not null
     )
     `);
-    await db.execute(sql`create index if not exists "spots_pref_idx" on "spots" ("prefecture")`);
-    await db.execute(sql`create index if not exists "spots_genre_idx" on "spots" ("genre")`);
-    await db.execute(sql`create index if not exists "spots_bbox_idx" on "spots" ("lat","lng")`);
+    await db.run(sql`create index if not exists "spots_pref_idx" on "spots" ("prefecture")`);
+    await db.run(sql`create index if not exists "spots_genre_idx" on "spots" ("genre")`);
+    await db.run(sql`create index if not exists "spots_bbox_idx" on "spots" ("lat","lng")`);
   } catch (error) {
     // 並列プロセスが同時に CREATE TABLE した場合の競合は無視して続行
     const code = (error as { code?: string }).code;
@@ -272,8 +270,8 @@ function toRow(f: RawFeature): NewSpotRow {
     lng: f.geometry.coordinates[0],
     genre: p.genre ?? null,
     status: p.status ?? null,
-    phenomena: p.phenomena ?? [],
-    features: p.features ?? [],
+    phenomena: JSON.stringify(p.phenomena ?? []),
+    features: JSON.stringify(p.features ?? []),
     totalScore: p.totalScore ?? null,
     nationalRank: p.nationalRank ?? null,
     prefRank: p.prefRank ?? null,
@@ -283,12 +281,14 @@ function toRow(f: RawFeature): NewSpotRow {
     comment: p.comment ?? null,
     imageUrl: p.imageUrl ?? null,
     sourceUrl: p.sourceUrl,
+    updatedAt: new Date().toISOString(),
   };
 }
 
 /** GeoJSON から DB へ upsert（冪等） */
 export async function importGeoJsonIntoDb(): Promise<number> {
-  if (!(await hasDbAsync())) throw new Error("DATABASE_URL is not configured");
+  if (!(await hasDbAsync()))
+    throw new Error("D1 binding DB is not configured — use GeoJSON fallback");
   await createTableIfMissing();
   const features = await readGeoJson();
   const rows = features.map(toRow);
@@ -320,7 +320,7 @@ export async function importGeoJsonIntoDb(): Promise<number> {
           comment: sql`excluded.comment`,
           imageUrl: sql`excluded.image_url`,
           sourceUrl: sql`excluded.source_url`,
-          updatedAt: sql`now()`,
+          updatedAt: new Date().toISOString(),
         },
       });
   }
@@ -335,10 +335,8 @@ export async function ensureSeeded(): Promise<void> {
       if (!(await tableReady())) {
         await createTableIfMissing();
       }
-      // 複数プロセス（ビルドワーカー等）の同時シードを防ぐ (transaction scoped lock)
       await db.transaction(async (tx) => {
-        await tx.execute(sql`select pg_advisory_xact_lock(918273645)`);
-        const [row] = await tx.select({ c: sql<number>`count(*)::int` }).from(spots);
+        const [row] = await tx.select({ c: sql<number>`count(*)` }).from(spots);
         if (!row || row.c === 0) await importGeoJsonIntoDb();
       });
     })().catch((err) => {
@@ -362,6 +360,18 @@ export type SpotQuery = {
 export function rowToFeature(row: SpotRow): SpotFeature {
   // Phase 3 拡張フィールドは将来の DB カラム（nearestStation等）があれば透過、無ければ undefined→null 扱い
   const r = row as unknown as Record<string, unknown>;
+  const parseJsonArray = (v: unknown): string[] => {
+    if (Array.isArray(v)) return v as string[];
+    if (typeof v === "string") {
+      try {
+        const parsed = JSON.parse(v);
+        return Array.isArray(parsed) ? (parsed as string[]) : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
   return {
     type: "Feature",
     geometry: { type: "Point", coordinates: [row.lng, row.lat] },
@@ -374,8 +384,8 @@ export function rowToFeature(row: SpotRow): SpotFeature {
       city: row.city,
       genre: row.genre,
       status: row.status,
-      phenomena: row.phenomena ?? [],
-      features: row.features ?? [],
+      phenomena: parseJsonArray((row as unknown as { phenomena: unknown }).phenomena),
+      features: parseJsonArray((row as unknown as { features: unknown }).features),
       totalScore: row.totalScore,
       nationalRank: row.nationalRank,
       prefRank: row.prefRank,
@@ -418,19 +428,20 @@ function buildConditions(query: SpotQuery): SQL[] {
     conds.push(inArray(spots.prefecture, query.pref));
   }
   if (query.phenomenon) {
-    conds.push(sql`${query.phenomenon} = any(${spots.phenomena})`);
+    // D1: phenomena は JSON text '["a","b"]' なので instr で部分一致（SQLite JSON1 が無い環境でも動作）
+    conds.push(sql`instr(${spots.phenomena}, ${`"${query.phenomenon}"`}) > 0`);
   }
   if (typeof query.minRating === "number" && query.minRating > 0) {
     conds.push(gte(spots.fearRating, query.minRating));
   }
   if (query.q) {
-    const like = `%${query.q}%`;
+    const pattern = `%${query.q}%`;
     const orCond = or(
-      ilike(spots.name, like),
-      ilike(spots.kana, like),
-      ilike(spots.address, like),
-      ilike(spots.city, like),
-      ilike(spots.prefecture, like)
+      like(spots.name, pattern),
+      like(spots.kana, pattern),
+      like(spots.address, pattern),
+      like(spots.city, pattern),
+      like(spots.prefecture, pattern)
     );
     if (orCond) conds.push(orCond);
   }
@@ -497,25 +508,33 @@ async function _getFacets(): Promise<SpotFacets> {
   }
   await ensureSeeded();
   const genres = await db
-    .select({ value: spots.genre, count: sql<number>`count(*)::int` })
+    .select({ value: spots.genre, count: sql<number>`count(*)` })
     .from(spots)
     .where(sql`${spots.genre} is not null`)
     .groupBy(spots.genre)
     .orderBy(sql`count(*) desc`);
   const prefectures = await db
-    .select({ value: spots.prefecture, count: sql<number>`count(*)::int` })
+    .select({ value: spots.prefecture, count: sql<number>`count(*)` })
     .from(spots)
     .where(sql`${spots.prefecture} is not null`)
     .groupBy(spots.prefecture)
     .orderBy(sql`count(*) desc`);
-  const phenomena = await db.execute<{ value: string; count: number }>(sql`
-    select unnest(phenomena) as value, count(*)::int as count
-    from ${spots}
-    group by 1
+  // D1: phenomena は JSON text のため json_each で展開。フォールバックで JS 集計も可能だが、SQLで高速化
+  let phenomena: { rows: { value: string; count: number }[] } = { rows: [] };
+  try {
+    const result = await db.all<{ value: string; count: number }>(sql`
+    select j.value as value, count(*) as count
+    from ${spots}, json_each(${spots.phenomena}) as j
+    group by j.value
     order by count desc
     limit 24
   `);
-  const [total] = await db.select({ c: sql<number>`count(*)::int` }).from(spots);
+    const rows = (result as unknown as { results?: unknown[] })?.results ?? result;
+    phenomena = { rows: rows as { value: string; count: number }[] };
+  } catch {
+    phenomena = { rows: [] };
+  }
+  const [total] = await db.select({ c: sql<number>`count(*)` }).from(spots);
 
   return {
     total: total?.c ?? 0,

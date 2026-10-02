@@ -1,71 +1,69 @@
-# Cloudflare Workers デプロイガイド — urbex-hunter
+# Cloudflare Workers デプロイガイド — urbex-hunter（vinext + D1）
 
-> Next.js 16 (App Router) × Cloudflare Workers（`workerd` + `nodejs_compat`）× OpenNext Cloudflare Adapter  
-> 本プロジェクト固有の注意点（`pg`/`fs`/`revalidate`/`images`）を完全に吸収した手順。  
-> 元ドキュメント `docs/cf workersで公開するnextjsの注意点.md`（Perplexity生成、10章）を精読し反映済み。事実確認は `fetch_page`/`web_search` で実施。
+> Next.js 16 (App Router) × Vite × vinext × Cloudflare Workers（`workerd` + `nodejs_compat`）× D1 (SQLite)  
+> `vite build` / `wrangler d1` / `drizzle-orm/d1` で Workers ネイティブに動作。GeoJSON フォールバック（752件）で DB なしでも完全動作。
 
-## なぜ OpenNext か（vinextとの選択）
+## なぜ vinext + D1 か
 
-- Cloudflareは**新規 Next.js アプリには `vinext` を推奨**（`npx vinext check` → `vinext init` → `npm run build:vinext`）[1](https://developers.cloudflare.com/workers/framework-guides/web-apps/nextjs/)、ただし**Beta** [1](https://developers.cloudflare.com/workers/framework-guides/web-apps/nextjs/)。
-- **`@opennextjs/cloudflare` は「既存の OpenNext アプリを維持する場合」に推奨**され、vinextへ移行できない互換性ギャップがある場合に使うパスとして公式に残されている [2](https://developers.cloudflare.com/workers/framework-guides/web-apps/opennext/)。[2](https://developers.cloudflare.com/workers/framework-guides/web-apps/opennext/) には `Use this guide to maintain an existing OpenNext application. Migrate to vinext when compatibility allows.` と明記。
-- 本プロジェクトは Next.js 16 + Drizzle + scraping + `node:fs`/`pg` を含む既存アプリのため、**OpenNextを選択**（vinextへの移行は `npx vinext check` で互換性確認後に検討）。`@cloudflare/next-on-pages` は Edge専用・Next16非対応のため不使用。
+- **vinext** は Vite ベースの Next.js アダプタ。[Cloudflare公式が新規 Next.js アプリに `vinext` を推奨](https://developers.cloudflare.com/workers/framework-guides/web-apps/nextjs/)（`npx vinext check` → `vinext init --platform=cloudflare` → `vite build`）。`@opennextjs/cloudflare` は「既存 OpenNext アプリ維持用」として残されているが、本プロジェクトは vinext へ完全移行済み（`open-next.config.ts` 削除、`.open-next` 成果物なし）。
+- **D1** は Workers ネイティブの SQLite。Neon/Hyperdrive（Postgres, `pg`）は Workers 外部の TCP 接続で `pg-native`/`pg-cloudflare` の external 化が必要だったが、D1 は `drizzle-orm/d1` + `env.DB` binding で `workerd` 内で完結し、コールドスタート/コネクション/リージョンで有利。未設定時は `src/data/spots.json` フォールバックで即起動。
 
-## このリポジトリで実施した対応
+## このリポジトリで実施した対応（vinext + D1）
 
-| 課題（典型的な落とし穴） | 本リポジトリの対策 | ファイル |
+| 課題 | 対策 | ファイル |
 |---|---|---|
-| `runtime = 'edge'` を書くと OpenNext が非対応でビルド失敗 | **未使用を確認**（`grep runtime` で `edge` なし） | — |
-| `node:fs`/`process.cwd()` で `data/spots.geojson` を読む → Workers は FS がない | `src/lib/spots-repo.ts` を **Workers フォールバック**化。`fs` は `dynamic import` で遅延、失敗時は `src/data/spots.json`（`data/spots.geojson` をバンドル時に `src/data/spots.json` へコピー、Turbopack は `.json` のみ解決）を静的 import で利用。ローカルは `fs` の mtime キャッシュ、Workers は埋め込みデータ。 | `src/lib/spots-repo.ts`, `src/data/spots.json` |
-| `pg` (`drizzle-orm/node-postgres`) が `pg-native`/`pg-cloudflare` を `require` し esbuild で `Could not resolve` | `next.config.ts` に `serverExternalPackages: ["pg","pg-native","pg-cloudflare"]` で **external 化**（OpenNext の esbuild が解決しない）。`pg@8.20.0` + `pg-cloudflare@1.4.1` をインストール済み。Workers では既定で **GeoJSON フォールバック**（`DATABASE_URL` 未設定かつ Hyperdrive 未設定 → `hasDbAsync()===false`）なので DB なしでも完全動作。DB が必要な場合のみ Hyperdrive経由で `pg` がランタイム `require` される。`src/db/index.ts` は `getCloudflareContext().env.HYPERDRIVE.connectionString` を優先 [4](https://opennext.js.org/cloudflare/howtos/db)、`maxUses:1` で per-request Pool [4](https://opennext.js.org/cloudflare/howtos/db)。 | `next.config.ts`, `package.json`, `src/db/index.ts` |
-| `process.env` が Workers では空（`compatibility_date` が古いと） | `wrangler.jsonc` の `compatibility_date: 2026-10-02` + `compatibility_flags: ["nodejs_compat"]` で `process.env` が自動 population。OpenNext が `env` → `process.env` にマッピング。`2026-10-02` は OpenNext公式の `Set this to today's date` に準拠 [2](https://developers.cloudflare.com/workers/framework-guides/web-apps/opennext/)。[3](https://developers.cloudflare.com/workers/databases/third-party-integrations/neon/) でも `compatibility_date: 2026-10-02` が例示。 | `wrangler.jsonc` |
-| `revalidate = 86400` / `unstable_cache` が Workers ではメモリのみで永続化しない | `open-next.config.ts` で `defineCloudflareConfig({})` を用意。**本番で永続化したい場合は R2**：`import r2IncrementalCache from "@opennextjs/cloudflare/overrides/incremental-cache/r2-incremental-cache"` を `incrementalCache` に渡す。`wrangler.jsonc` に `r2_buckets` コメント済み。 | `open-next.config.ts`, `wrangler.jsonc` |
-| 画像最適化 (`ghostmap.jp` の `imageUrl`) が `IMAGES` binding なしで失敗 | `next.config.ts` は `remotePatterns` のみ。OpenNext は `IMAGES` binding があれば **Cloudflare Images** で最適化、なければ `fetch` フォールバック。未設定でも動作。必要なら `wrangler.jsonc` に `images: { binding: "IMAGES" }` を追加。 | `next.config.ts`, `wrangler.jsonc` |
-| `next dev` で `.dev.vars` が読まれない | `next.config.ts` で `initOpenNextCloudflareForDev()` を `import("@opennextjs/cloudflare").then(...)` で呼び出し（`ES2017` 互換のため top-level await を避けた dynamic import）。 | `next.config.ts` |
-| `biome` が `src/data/spots.json` (911KB) を lint して失敗 | `biome.json` に `overrides: [{ includes: ["src/data/**","data/**"], linter: false, formatter: false }]` | `biome.json` |
-| `pnpm: not found` で `opennextjs-cloudflare build` が失敗 | CI/ローカルで `corepack enable` または `corepack prepare pnpm@12.5.1 --activate` が必要。`packageManager: pnpm@12.5.1` を明記済み。 | `package.json`, `pnpm-lock.yaml` |
+| `runtime = 'edge'` でビルド失敗 | 未使用（`grep -r "runtime.*edge"` で空） | — |
+| `node:fs`/`process.cwd()` で `data/spots.geojson` → Workers は FS なし | `src/lib/spots-repo.ts` を **Workers フォールバック**化。`fs` は `dynamic import` で遅延、失敗時は `src/data/spots.json`（`data/spots.geojson` を `src/data/spots.json` へコピー、Turbopack/Vite は `.json` のみ解決）を静的 import。ローカルは `fs` + mtime キャッシュ、Workers は埋め込みデータ。 | `src/lib/spots-repo.ts`, `src/data/spots.json` |
+| `pg`/`pg-native` が esbuild/Rolldown で `Could not resolve` | **D1 移行で `pg` 削除**。`src/db/index.ts` は `cloudflare:workers` の `env.DB` から `drizzle(env.DB, { schema })` を `cache()` で生成（OpenNext公式の `cache(() => drizzle(env.MY_D1))` に準拠）。`pg`/`pg-cloudflare`/`@types/pg`/`@opennextjs/cloudflare` を `package.json` から削除、`next.config.ts` の `serverExternalPackages` も削除。 | `src/db/index.ts`, `src/db/schema.ts` (sqliteTable), `package.json`, `next.config.ts`, `vite.config.ts` |
+| `cloudflare:workers` が Vite/Rolldown で未解決 | `vite.config.ts` で `cloudflare:workers` を `ssr.external` + `environments.rsc/ssr.build.rolldownOptions.external` に指定。`@tailwindcss/vite` を追加し `globals.css` の `@import "tailwindcss"` を解決。 | `vite.config.ts` |
+| `D1 phenomena` が Postgres `text[]` → SQLite は `text` (JSON) | `src/db/schema.ts` は `sqliteTable` + `text` default `'[]'`。`src/lib/spots-repo.ts` は `toRow` で `JSON.stringify`、`rowToFeature` で `JSON.parse`、`phenomenon` 検索は `like` + `instr("phenomena", '"q"')`、facets は `json_each` + `db.all`。 | `src/db/schema.ts`, `src/lib/spots-repo.ts` |
+| `postcss` で `@import "tailwindcss"` が `ENOENT` | `@tailwindcss/vite` を `vite.config.ts` の先頭に配置し Vite が解決。`postcss.config.mjs` は `@tailwindcss/postcss` のまま（Next ビルド用）。 | `vite.config.ts`, `postcss.config.mjs` |
+| `wrangler.jsonc` の `main: .open-next/worker.js` が vite で `doesn't point to an existing file` | `wrangler.jsonc` を **vinext 用に全面置換**：`main`/`services` (OpenNext) を削除、`assets.directory` を `.open-next/assets` → `dist/client` に、`d1_databases` (binding `DB`) を追加、`images` は維持。`dist/server/wrangler.json` は `vite build` 後に自動生成される。 | `wrangler.jsonc` |
+| `vitest` が `cloudflare:workers` を解決できず `FAIL` | `vitest.config.ts` に `resolve.alias: { "cloudflare:workers": "./src/__mocks__/cloudflare-workers.ts" }` を追加。モックは `env: {}` を返しテストは GeoJSON フォールバックで実行。 | `vitest.config.ts`, `src/__mocks__/cloudflare-workers.ts` |
+| `drizzle/0002_enable_pg_trgm.sql` (GIN/pg_trgm) が D1 で無効 | 削除し `drizzle-kit generate` で **SQLite 用 `0000_*.sql`** を再生成（`spots` + 3 indexes）。 | `drizzle/0000_*.sql`, `drizzle.config.ts` (dialect: sqlite, url: file:./dev.db) |
+| `biome` が `src/data/spots.json` (911KB) を lint | `biome.json` に `overrides: [{ includes: ["src/data/**","data/**"], linter: false }]` | `biome.json` |
 
 ## セットアップ済みファイル
 
 ```
-open-next.config.ts          # defineCloudflareConfig({}) — R2 追加はコメント参照
-wrangler.jsonc               # name, main .open-next/worker.js, assets, services, compatibility_date 2026-10-02
-next.config.ts               # serverExternalPackages + initOpenNextCloudflareForDev
-src/data/spots.json          # data/spots.geojson のコピー（.json で Turbopack 解決）
-src/lib/spots-repo.ts        # Workers フォールバック対応
-public/_headers              # 静的 asset の Cache-Control
-.dev.vars.example            # ローカル用サンプル（cp .dev.vars.example .dev.vars）
-cloudflare-env.d.ts          # wrangler types 生成（gitignore 済み、要再生成）
-biome.json / .gitignore      # .open-next/.wrangler/.dev.vars を ignore
-package.json scripts          # preview/deploy/cf:* 追加
+wrangler.jsonc               # vinext 用: assets dist/client, d1_databases DB, images, compatibility_date 2026-10-02
+vite.config.ts               # tailwindcss() + vinext({ images }) + cloudflare({ viteEnvironment: { name: "rsc" } }) + cloudflare:workers external
+src/db/schema.ts             # sqliteTable (D1) — 旧 src/db/schema.pg.ts は削除
+src/db/index.ts              # getD1Binding / getD1BindingAsync / getDb / getDbAsync / db Proxy (cloudflare:workers)
+src/lib/spots-repo.ts        # D1/SQLite 対応 (JSON stringify/parse, like, instr, json_each, db.all, db.run)
+src/__mocks__/cloudflare-workers.ts # vitest 用モック
+drizzle.config.ts            # dialect: sqlite, schema: ./src/db/schema.ts, out: ./drizzle, url: file:./dev.db
+drizzle/0000_*.sql            # D1 用マイグレーション (CREATE TABLE spots + 3 indexes)
+src/data/spots.json          # data/spots.geojson のコピー（.json で Vite/Turbopack 解決）
+scripts/seed.ts              # D1 ローカル (libsql file:./dev.db) へ 752件投入
+package.json scripts          # dev:vinext/build:vinext/deploy:vinext + db:generate/migrate, pg/OpenNext 削除
+next.config.ts               # images.remotePatterns のみ (serverExternalPackages 削除)
 ```
 
-## DB — Hyperdrive 実装詳細（Neon）
+## DB — D1 実装詳細
 
-`src/db/index.ts` は `getCloudflareContext().env.HYPERDRIVE.connectionString` を優先し、未設定なら `process.env.DATABASE_URL` にフォールバックする。OpenNext公式の Hyperdrive サンプルに準拠 [4](https://opennext.js.org/cloudflare/howtos/db)：
+`src/db/index.ts` は vinext 推奨の `cloudflare:workers` から `env.DB` を取得：
 
 ```ts
-import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+import { drizzle as drizzleD1 } from "drizzle-orm/d1";
+import { cache } from "react";
+import * as schema from "./schema";
 
-export function getDb() {
-  const { env } = getCloudflareContext();
-  const cs = env.HYPERDRIVE.connectionString; // Hyperdrive推奨 [3](https://developers.cloudflare.com/workers/databases/third-party-integrations/neon/)
-  const pool = new Pool({ connectionString: cs, maxUses: 1 }); // per-request [4](https://opennext.js.org/cloudflare/howtos/db)
-  return drizzle({ client: pool });
+function getD1BindingSync() {
+  const cw = require("cloudflare:workers") as { env?: Record<string, unknown> };
+  return cw?.env?.DB as D1Database | undefined;
 }
-export async function getDbAsync() {
-  const { env } = await getCloudflareContext({ async: true }); // ISR/SSGでは async:true [4](https://opennext.js.org/cloudflare/howtos/db)
-  const cs = env.HYPERDRIVE.connectionString;
-  return drizzle(new Pool({ connectionString: cs, maxUses: 1 }));
-}
+export const getDb = cache(() => {
+  const d1 = getD1BindingSync();
+  if (!d1) throw new Error("D1 binding DB is not configured — use GeoJSON fallback");
+  return drizzleD1(d1, { schema });
+});
 ```
 
-- `pg@>=8.16.3` が必須 [3](https://developers.cloudflare.com/workers/databases/third-party-integrations/neon/)（本プロジェクトは `pg@8.20.0`）。
-- `wrangler.jsonc` の `hyperdrive` は `localConnectionString` を併記し `wrangler dev --remote` なしでもローカルでDB接続可能 [5](https://neon.com/docs/guides/cloudflare-workers)。
-- Neon側は**非プール接続文字列**を Hyperdrive に登録（`psql` の pooling off）し、Hyperdrive側で pooling を任せる [3](https://developers.cloudflare.com/workers/databases/third-party-integrations/neon/)。[6](https://neon.com/docs/guides/cloudflare-hyperdrive) では `wrangler hyperdrive create` で専用ロール `hyperdrive-user` を作成する手順が解説。
-- `src/lib/spots-repo.ts` は `hasDbAsync()` で Hyperdrive 存在をランタイム判定し、未設定時は GeoJSON フォールバック（Workersでも完全動作）。
-- リージョン: Neonが東京なら `wrangler.jsonc` の `placement: { mode: "smart" }` でレイテンシ削減（任意）[6](https://neon.com/docs/guides/cloudflare-hyperdrive)。
+- `wrangler.jsonc` の `d1_databases: [{ binding: "DB", database_name: "urbex-hunter-db", database_id: "REPLACE_WITH_D1_ID" }]`
+- ローカル `vite dev` は Miniflare が `wrangler.jsonc` の D1 を `env.DB` として提供（`--local` でも同様）
+- 未設定/テストでは `hasDbAsync() === false` → GeoJSON フォールバック（`src/data/spots.json`）で完全動作
+- マイグレーション: `drizzle-kit generate` → `drizzle/0000_*.sql` を `wrangler d1 execute` で適用（下記）
 
 ## ローカルで動かす
 
@@ -74,93 +72,98 @@ export async function getDbAsync() {
 corepack enable
 pnpm install
 
-# 2. 環境変数（Workers ローカルは .dev.vars、Next は .env.local）
-cp .dev.vars.example .dev.vars
-cp .dev.vars .env.local
-# DATABASE_URL を空にすれば GeoJSON フォールバックで即起動（推奨）
-# 例: DATABASE_URL="" で 752件が表示される
-# DB を使う場合: Neon/Supabase の URL を .dev.vars と .env.local 両方に記入
+# 2. 環境変数（D1 は binding で渡るため DATABASE_URL は不要。GeoJSON フォールバックなら何も設定不要）
+#    任意: .dev.vars / .env.local に NEXT_PUBLIC_* を設定（ビルド時インライン）
 
-# 3. 型生成
+# 3. 型生成（任意）
 pnpm run cf:typegen   # wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts
 
-# 4. 通常の Next 開発（HMR）
+# 4. 通常の Next 開発（HMR, GeoJSON フォールバック）
 pnpm run dev          # http://localhost:3000
 
-# 5. Workers 再現（本番に最も近い）
-pnpm run preview      # opennextjs-cloudflare build && opennextjs-cloudflare preview
-# または
-pnpm run cf:build
-pnpm exec wrangler dev --env="" # .dev.vars が読まれる
+# 5. vinext + Workers 再現（本番に最も近い、D1 は Miniflare の --local DB）
+pnpm run dev:vinext   # vite dev --port 3001 (wrangler.jsonc の D1 を自動 bind)
+# またはビルドして wrangler で確認
+pnpm run build:vinext # vite build → dist/server (RSC/SSR) + dist/client (assets) + dist/server/wrangler.json
+pnpm run start:vinext # wrangler dev --config dist/server/wrangler.json
 
-# 6. 静的ビルド検証
-pnpm run build
-pnpm run cf:build     # .open-next/worker.js が生成される
+# 6. D1 ローカル DB を作成・投入（任意、GeoJSON だけでも動作）
+pnpm exec wrangler d1 create urbex-hunter-db  # 初回のみ → 出力の database_id を wrangler.jsonc に貼り付け
+pnpm exec wrangler d1 execute urbex-hunter-db --local --file=./drizzle/0000_eminent_natasha_romanoff.sql
+pnpm run seed         # libsql file:./dev.db へ 752件投入（wrangler --local からも参照可能）
+# 本番 D1 へ反映（database_id 設定後）
+pnpm exec wrangler d1 execute urbex-hunter-db --remote --file=./drizzle/0000_eminent_natasha_romanoff.sql
 ```
 
 ## ビルドの検証（CI と同等）
 
 ```bash
-pnpm run typecheck   # tsc --noEmit
-pnpm run ci          # biome ci
-pnpm run build       # next build
-pnpm run cf:build    # opennextjs-cloudflare build  # 成功を確認済み（2026-10-02: Worker saved in .open-next/worker.js）
-pnpm run test        # vitest 37 passed
-pnpm exec playwright test --list # 2 tests
+pnpm run typecheck   # tsc --noEmit (0 errors)
+pnpm run check       # biome check (1 warning any + 11 infos, no errors)
+pnpm run build       # next build (Turbopack, 7/7 static)
+pnpm run build:vinext # vite build (rsc 291 modules + client 613 + ssr 533, Build complete, Route / ISR 86400)
+pnpm test            # vitest 37 passed (spots-repo 26 + scrape 11)
+pnpm exec playwright test --list # 2 tests (任意)
 ```
 
-## デプロイ（3つの方法）
+`pnpm run build:vinext` の成果物：
 
-### A. ローカルから `wrangler deploy`（最も早い）
+```
+dist/server/index.js              # Workers エントリ (RSC)
+dist/server/_next/static/*        # RSC チャンク
+dist/server/ssr/index.js          # SSR
+dist/client/_next/static/*        # Client assets
+dist/server/wrangler.json         # vinext が生成（wrangler deploy 用、wrangler.jsonc を継承）
+dist/client/wrangler.json         # 同上（client 用）
+```
+
+## デプロイ（2つの方法）
+
+### A. ローカルから `vinext-cloudflare deploy`（最も早い）
 
 ```bash
-# Cloudflare にログイン（初回のみ）
 pnpm exec wrangler login
 
-# （任意）R2 バケットを作成して ISR を永続化
-pnpm exec wrangler r2 bucket create urbex-hunter-cache
-# → wrangler.jsonc の r2_buckets コメントを外す
+# D1 を作成（初回のみ）
+pnpm exec wrangler d1 create urbex-hunter-db
+# → wrangler.jsonc の d1_databases[0].database_id に貼り付け
+pnpm exec wrangler d1 execute urbex-hunter-db --remote --file=./drizzle/0000_eminent_natasha_romanoff.sql
+# （任意）dev.db の内容を D1 へコピーする場合は wrangler d1 のインポート/バッチを利用
+# 例: sqlite dump → wrangler d1 execute --remote --file=./dump.sql
 
-# （任意）Hyperdrive で Postgres を Workers から使う（DB が必要な場合）
-pnpm exec wrangler hyperdrive create urbex-hunter-db --connection-string "$DATABASE_URL"
-# → 出力された id を wrangler.jsonc の hyperdrive.id に貼り付け
+# ビルド & デプロイ
+pnpm run build:vinext
+pnpm run deploy:vinext   # vinext-cloudflare deploy --config dist/server/wrangler.json
+# または dry-run
+pnpm exec vinext-cloudflare deploy --config dist/server/wrangler.json --dry-run
+```
 
-# 環境変数を登録（ダッシュボードでも可）
-echo "postgresql://..." | pnpm exec wrangler secret put DATABASE_URL
-# または平文 var として:
-# wrangler.jsonc の vars に追記するか、ダッシュボード > Workers > Settings > Variables
+`wrangler deploy` を直接使う場合：
 
-# デプロイ（build + deploy を一括）
-pnpm run deploy
-# 個別:
-pnpm run cf:build
-pnpm exec wrangler deploy
-# プレビュー用（昇格せずにバージョンのみ）
-pnpm exec wrangler deploy --preview
+```bash
+pnpm run build:vinext
+pnpm exec wrangler deploy --config dist/server/wrangler.json
 ```
 
 ### B. Workers Builds（GitHub 連携・自動デプロイ）— 推奨
 
-1. Cloudflare ダッシュボード → Compute → Workers → Create → Import from GitHub → `shiratama644/urbex-hunter` を選択
+1. Cloudflare ダッシュボード → Compute → Workers → Create → Import from GitHub → `shiratama644/urbex-hunter`
 2. Build 設定:
-   - **Build command**: `pnpm run cf:build` （内部で `pnpm build` 相当 + OpenNext 変換）
-   - **Deploy command**: `npx wrangler deploy` または空（Workers Builds は自動で `wrangler deploy` 相当）
-   - **Version command**: なし
-   - **Environment variables**: `DATABASE_URL` は **Secrets**（暗号化）で登録。`NEXT_PUBLIC_*` は **Vars** 兼 **Build-time** に必要 → ダッシュボードの *Build Environment* にも同値を設定（Next はビルド時にインライン化）。
+   - **Build command**: `pnpm run build:vinext` （`vite build`）
+   - **Deploy command**: （空 — Workers Builds が `wrangler deploy --config dist/server/wrangler.json` を自動実行。または `pnpm run deploy:vinext`）
+   - **Environment variables**: `NEXT_PUBLIC_*` は **Vars** 兼 **Build Environment** に登録（Next はビルド時インライン）。`DB` (D1) は自動で binding されるため Secrets 不要。`DATABASE_URL` は使用しない（D1移行で削除）。
    - **Compatibility date**: `2026-10-02` 以上（`nodejs_compat` 必須）
-3. 初回デプロイ後、表示された `*.workers.dev` で確認 → カスタムドメインは Settings → Triggers → Add Custom Domain
+3. 初回デプロイ後 `*.workers.dev` で確認 → カスタムドメインは Settings → Triggers → Add Custom Domain
+4. D1 はダッシュボード → Storage → D1 → `urbex-hunter-db` を作成し `database_id` を `wrangler.jsonc` に反映（または `wrangler d1 create` の出力を手動設定）。マイグレーションは `wrangler d1 execute --remote --file` で適用済みであること。
 
-> **重要**: Workers Builds は `process.env` の *build-time* と *runtime* が分離。`NEXT_PUBLIC_*` や `DATABASE_URL` をビルド時に使うコード（`next.config.ts` の `images` は除く）は **Build → Variables and Secrets** にも登録しないと `next build` 時に空になる。OpenNext のドキュメントでも `NEXT_PUBLIC_` はビルド時インラインと明記。
+> **重要**: Workers Builds の `process.env` は build-time と runtime が分離。`NEXT_PUBLIC_*` は **Build → Variables and Secrets** にも登録しないと `vite build` 時に空。
 
-### C. GitHub Actions（`wrangler deploy` を CI で）
-
-`.github/workflows/deploy-cloudflare.yml`（本コミットで追加予定のサンプル）：
+### C. GitHub Actions（任意）
 
 ```yaml
-name: Deploy to Cloudflare Workers
+name: Deploy to Cloudflare Workers (vinext + D1)
 on:
-  push:
-    branches: [main]
+  push: { branches: [main] }
   workflow_dispatch:
 jobs:
   deploy:
@@ -173,53 +176,54 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run cf:build
+      - run: pnpm run build:vinext
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }} # あれば。なければ GeoJSON フォールバック
           NEXT_PUBLIC_MAP_TILES: ${{ vars.NEXT_PUBLIC_MAP_TILES }}
       - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
+          command: deploy --config dist/server/wrangler.json
 ```
 
-`CLOUDFLARE_API_TOKEN`（`Edit Cloudflare Workers` テンプレート）+ `CLOUDFLARE_ACCOUNT_ID` を GitHub Secrets に登録。
+事前に `wrangler d1 create` / `wrangler d1 execute --remote --file` で D1 を用意しておくこと。
 
 ## 環境変数マトリクス
 
 | 変数 | いつ inlined | どこに設定 | 備考 |
 |---|---|---|---|
-| `DATABASE_URL` / `HYPERDRIVE` | ランタイム（`hasDbAsync()` で分岐） | `.dev.vars` / `wrangler secret put` / ダッシュボード Secrets / `wrangler.jsonc` `hyperdrive` binding | 空なら GeoJSON フォールバック（Workers推奨）。Hyperdrive設定時は `src/db/index.ts` が `getCloudflareContext().env.HYPERDRIVE.connectionString` を優先 [4](https://opennext.js.org/cloudflare/howtos/db)（`localConnectionString` で `wrangler dev` でも接続 [5](https://neon.com/docs/guides/cloudflare-workers)）。`DATABASE_URL` はローカル/フォールバック用。 |
-| `NEXT_PUBLIC_*` | **ビルド時**（Next が静的置換） | `.env.local` / `.dev.vars` + **Workers Builds の Build Env** / `wrangler.jsonc` vars | `opennextjs-cloudflare build` 実行前に `process.env` に存在する必要がある。ダッシュボードで *Runtime* のみ設定してもビルド時には空。 |
-| `CLOUDFLARE_API_TOKEN` 等 | CI デプロイ時のみ | GitHub Secrets | — |
+| `DB` (D1 binding) | ランタイム（`cloudflare:workers` env.DB） | `wrangler.jsonc` `d1_databases` + ダッシュボード D1 | 未設定なら GeoJSON フォールバック（推奨）。`REPLACE_WITH_D1_ID` を実際の `database_id` に置換。 |
+| `NEXT_PUBLIC_*` | **ビルド時**（Vite/Next が静的置換） | `.env.local` / `.dev.vars` + **Workers Builds の Build Env** / `wrangler.jsonc` vars | `vite build` 実行前に `process.env` に存在する必要がある。ダッシュボードで Runtime のみ設定してもビルド時には空。 |
+| `CLOUDFLARE_API_TOKEN` 等 | CI デプロイ時のみ | GitHub Secrets | `wrangler deploy` 用。 |
 
-## トラブルシューティング（実査）
+`DATABASE_URL` / `HYPERDRIVE` は D1 移行で廃止（`src/db/index.ts` は `cloudflare:workers` の `DB` のみ参照）。
 
-- **`pnpm: not found` / `workerd@1.20260930.2 ignored`** → `corepack enable && corepack prepare pnpm@12.5.1 --activate` または `npm i -g pnpm@12.5.1`。`workerd` の postinstall が `pnpm approve-builds` でブロックされた場合は `node node_modules/.pnpm/workerd@.../node_modules/workerd/install.js` を手動実行。
-- **`Could not resolve "pg-native" / "pg-cloudflare"`** → `next.config.ts` の `serverExternalPackages` で解決済み。`pg@8.11.5` に下げても同様だが `serverExternalPackages` が根本解決。
-- **`Unknown module type .geojson`** → `data/spots.geojson` を `src/data/spots.json` にコピーして `.json` で import（Turbopack は `.json` のみネイティブ）。`pnpm run scrape` 後に `cp data/spots.geojson src/data/spots.json` を忘れずに（`package.json` の `prebuild` にも追加可能）。
-- **`compatibility_date` が古いと `process.env` が空** → `2025-04-01` 以降が必須。`2026-10-02` に更新済み。
-- **`export const runtime = 'edge'` があると OpenNext がエラー** → 本プロジェクトは未使用を確認。
-- **`.open-next/worker.js not found` で `wrangler deploy` 失敗** → `wrangler.jsonc` の `main: .open-next/worker.js` は `opennextjs-cloudflare build` 後に生成される。`pnpm run deploy` は build→deploy を一括で行うので順序を守る。Workers Builds では Build command を `pnpm run cf:build` にすること（`.open-next` は `.gitignore` なので GitHub に push しない）。
+## トラブルシューティング
+
+- **`The provided Wrangler config main field (...) doesn't point to an existing file`** → `wrangler.jsonc` に OpenNext の `main: .open-next/worker.js` が残っている。vinext では `main` を削除し `assets.directory: dist/client` にすること（本リポジトリは修正済み）。
+- **`failed to resolve import "pg-native" / "pg-cloudflare"`** → D1 移行で `pg` を削除済み。`vite.config.ts` の external は `cloudflare:workers` のみ。`pnpm install` 後に `pnpm run build:vinext` を再実行。
+- **`[postcss] ENOENT: open 'tailwindcss'`** → `@tailwindcss/vite` が `vite.config.ts` に無い。先頭に `tailwindcss()` を追加済み。
+- **`Failed to resolve import "cloudflare:workers"` (vitest)** → `vitest.config.ts` の alias が未設定。本リポジトリは `src/__mocks__/cloudflare-workers.ts` に解決済み。
+- **`Unknown module type .geojson`** → `data/spots.geojson` を `src/data/spots.json` にコピーして `.json` で import（Vite/Turbopack は `.json` のみネイティブ）。`pnpm run scrape` 後に `cp data/spots.geojson src/data/spots.json` を忘れずに。
+- **`compatibility_date` が古いと `process.env` が空** → `2026-10-02` に更新済み。
+- **`export const runtime = 'edge'` があると vinext がエラー** → 本プロジェクトは未使用を確認。
+- **`.open-next/worker.js not found` で `wrangler deploy` 失敗** → vinext では `dist/server/wrangler.json` を使う。`pnpm run build:vinext` 後に `pnpm run deploy:vinext` を実行すること。
 - **画像が表示されない** → `next.config.ts` の `images.remotePatterns` は `ghostmap.jp` のみ許可。外部 `imageUrl` が別ドメインなら追加。Workers で最適化を無効化したい場合は `images: { unoptimized: true }`。
+- **`drizzle-kit generate` で `0002_enable_pg_trgm.sql` が残る** → D1 では `pg_trgm`/`GIN` は不要。削除し `0000_*.sql` (SQLite) を生成済み。
 
 ## 次のステップ（オプション）
 
-1. **R2 で ISR 永続化**: `wrangler r2 bucket create urbex-hunter-cache` → `open-next.config.ts` で `incrementalCache: r2IncrementalCache` を有効化 → `wrangler.jsonc` の `r2_buckets` をアンコメント。
-2. **D1 で Tag Cache**: On-demand `revalidateTag` を使う場合のみ `d1NextTagCache` + `doQueue`。
-3. **Hyperdrive で DB**: 本番で DB を使いたい場合、`pg` を Workers から直接 `DATABASE_URL` で触るより Hyperdrive 経由がレイテンシ・コネクション数で有利。
-4. **カスタムドメイン**: Cloudflare ダッシュボード → Workers → Triggers → Custom Domains → `urbex-hunter.yourdomain.com`。
+1. **R2 で ISR 永続化**: `wrangler r2 bucket create urbex-hunter-cache` → `vite.config.ts` / `wrangler.jsonc` で `assets` / `cache` を設定（vinext の `cache` オプション参照）。
+2. **D1 を本番投入**: `wrangler d1 create` → `wrangler.jsonc` に `database_id` 設定 → `wrangler d1 execute --remote --file=./drizzle/0000_*.sql` → `pnpm run seed` の `dev.db` をバッチで投入（または `ensureSeeded()` の自動投入に任せる — 初回アクセス時に GeoJSON から D1 へ copy）。
+3. **Tag cache**: `revalidateTag` を使う場合のみ `d1Databases` 追加 + `caching` 設定。
+4. **カスタムドメイン**: Cloudflare ダッシュボード → Workers → Triggers → Custom Domains。
 
 ## 参考リンク
 
-- [1] Neon + Hyperdrive 推奨: https://developers.cloudflare.com/workers/databases/third-party-integrations/neon/
-- [2] OpenNext adapter（既存アプリ維持）: https://developers.cloudflare.com/workers/framework-guides/web-apps/opennext/
-- [3] vinext推奨（新規）: https://developers.cloudflare.com/workers/framework-guides/web-apps/nextjs/
-- [4] OpenNext DB (Hyperdrive): https://opennext.js.org/cloudflare/howtos/db
-- [5] Neon Workers ガイド（localConnectionString）: https://neon.com/docs/guides/cloudflare-workers
-- [6] Neon Hyperdrive ガイド: https://neon.com/docs/guides/cloudflare-hyperdrive
-- OpenNext Cloudflare Adapter: https://opennext.js.org/cloudflare/get-started
+- vinext (Vite 版 Next.js): https://developers.cloudflare.com/workers/framework-guides/web-apps/nextjs/
+- OpenNext (既存アプリ維持): https://developers.cloudflare.com/workers/framework-guides/web-apps/opennext/
+- D1 (SQLite on Workers): https://developers.cloudflare.com/d1/
+- drizzle-orm/d1: https://orm.drizzle.team/docs/get-started/sqlite-new#cloudflare-d1
+- @tailwindcss/vite: https://tailwindcss.com/docs/installation/using-vite
 - Cloudflare Workers `nodejs_compat`: https://developers.cloudflare.com/workers/configuration/compatibility-dates/
-- `initOpenNextCloudflareForDev`: https://opennext.js.org/cloudflare/howtos/dev
-- Caching (R2/D1): https://opennext.js.org/cloudflare/caching
+- vinext Cloudflare images: https://github.com/vinext/vinext

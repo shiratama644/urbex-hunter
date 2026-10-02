@@ -147,8 +147,13 @@ vite.config.ts.timestamp-*
 .vite/
 next-env.d.ts
 
-# Cloudflare Workers (OpenNext)
+# Cloudflare Workers (OpenNext / vinext)
 .open-next
 .wrangler
 .dev.vars
 cloudflare-env.d.ts
+.vinext/
+# D1 local SQLite
+dev.db
+*.db
+*.db-journal

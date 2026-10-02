@@ -1,58 +1,35 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "urbex-hunter",
-  "main": ".open-next/worker.js",
   "compatibility_date": "2026-10-02",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
-    "directory": ".open-next/assets",
+    "directory": "dist/client",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application"
   },
-  // Source maps enabled for opennextjs-cloudflare build — set to false to disable
-  // https://opennext.js.org/cloudflare/howtos/sourcemaps
   "observability": {
     "enabled": true
   },
-  // Bind the Worker to itself for `fetch` self-reference (used by OpenNext's cache warmer)
-  "services": [
+  // D1 (SQLite) — Cloudflare Workers ネイティブ（本番は D1、未設定時は GeoJSON フォールバック）
+  // 1. `pnpm exec wrangler d1 create urbex-hunter-db`
+  // 2. 出力の `database_id` を下記 `database_id` に貼り付け
+  // 3. `pnpm exec wrangler d1 execute urbex-hunter-db --file=./drizzle/0001_init.sql`
+  //    または `pnpm run db:migrate`（drizzle-kit）
+  "d1_databases": [
     {
-      "binding": "WORKER_SELF_REFERENCE",
-      "service": "urbex-hunter"
+      "binding": "DB",
+      "database_name": "urbex-hunter-db",
+      "database_id": "REPLACE_WITH_D1_ID",
+      "migrations_dir": "drizzle"
     }
   ],
-  // Optional: R2 bucket for ISR/incr cache persistence (uncomment after `wrangler r2 bucket create urbex-hunter-cache`)
-  // "r2_buckets": [
-  //   {
-  //     "binding": "NEXT_INC_CACHE_R2_BUCKET",
-  //     "bucket_name": "urbex-hunter-cache"
-  //   }
-  // ],
-  // Optional: D1 for tag cache if you use `revalidateTag()`
-  // "d1_databases": [
-  //   {
-  //     "binding": "NEXT_TAG_CACHE_D1",
-  //     "database_name": "urbex-hunter-tag-cache",
-  //     "database_id": "REPLACE_WITH_D1_ID"
-  //   }
-  // ],
-  // Hyperdrive (Postgres) — Neon推奨: Workers側で接続pooling/キャッシュ [1](https://developers.cloudflare.com/workers/databases/third-party-integrations/neon/)
-  // 1. Neonで `hyperdrive-user` ロールを作成し「非プール」接続文字列を取得（psql, pooling off）[1](https://developers.cloudflare.com/workers/databases/third-party-integrations/neon/)
-  // 2. `wrangler hyperdrive create urbex-hunter-db --connection-string "postgres://hyperdrive-user:PASS@HOST:5432/db"`
-  // 3. 出力の `id` を下記 `id` に貼り付け、`localConnectionString` に同じ非プール文字列を設定（`wrangler dev` 用）[1](https://neon.com/docs/guides/cloudflare-workers)
-  //    `pg@>=8.16.3` が必須 [1](https://developers.cloudflare.com/workers/databases/third-party-integrations/neon/)
-  // "hyperdrive": [
-  //   {
-  //     "binding": "HYPERDRIVE",
-  //     "id": "REPLACE_WITH_HYPERDRIVE_ID",
-  //     "localConnectionString": "postgres://hyperdrive-user:PASSWORD@HOST:5432/db"
-  //   }
-  // ],
-  // // Neonが ap-northeast-1 の場合、Workers配置でレイテンシ削減（任意）
-  // // "placement": { "mode": "smart" },
+  "images": {
+    "binding": "IMAGES"
+  },
   "vars": {
     // Runtime vars: set via dashboard or `wrangler secret put` / `wrangler deploy --var KEY:val`
-    // NEXT_PUBLIC_* vars are inlined at build time (set before `opennextjs-cloudflare build`)
-    // DATABASE_URL is optional on Workers — absent => GeoJSON fallback (no DB connection needed)
+    // NEXT_PUBLIC_* vars are inlined at build time (set before `vite build`)
+    // D1 未設定時は GeoJSON フォールバック（752件）で完全動作
   }
 }
