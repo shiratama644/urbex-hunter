@@ -41,7 +41,9 @@
     "deploy:vinext": "vinext-cloudflare deploy --config dist/server/wrangler.json",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "bench": "tsx scripts/bench.ts",
+    "bench:explain": "tsx scripts/bench.ts"
   },
   "dependencies": {
     "@types/leaflet": "^1.9.22",
