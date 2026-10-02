@@ -157,3 +157,25 @@ npm run build
 ```
 
 詳細な運用は [`docs/ops/quality-gates.md`](docs/ops/quality-gates.md)。
+
+## 7. デプロイ — Cloudflare Workers
+
+**`@opennextjs/cloudflare` で Next.js 16 を `workerd` (`nodejs_compat`) 上で動作。** `Vercel` 以外で ISR/`revalidate` を正しく動かす唯一の公式アダプタ。`@cloudflare/next-on-pages` は Edge 専用・Next 16 非対応のため不使用。
+
+> ** Workers 注意点（`cf workersで公開するnextjsの注意点.md` 相当）を完全吸収済み。** 詳細は [`docs/deploy-cloudflare.md`](docs/deploy-cloudflare.md)。
+
+```bash
+# ローカル（Workers 再現）
+cp .dev.vars.example .dev.vars && cp .dev.vars .env.local
+pnpm run preview      # opennextjs-cloudflare build && preview → http://localhost:8787
+
+# 本番
+pnpm run deploy       # build && wrangler deploy
+# または GitHub 連携: Cloudflare Dashboard → Workers → Import from GitHub
+# Build command: pnpm run cf:build   Deploy command: npx wrangler deploy
+```
+
+- **DB なしでも動作**: `DATABASE_URL` 未設定時は `data/spots.geojson` → `src/data/spots.json` をバンドルした **GeoJSON フォールバック**（752件）で完全動作。DB が必要な場合のみ `wrangler secret put DATABASE_URL` または Hyperdrive。
+- **必須設定**: `wrangler.jsonc` (`compatibility_date: 2025-09-01`, `nodejs_compat`, `assets`, `services`), `open-next.config.ts`, `next.config.ts` の `serverExternalPackages: ["pg","pg-native","pg-cloudflare"]` + `initOpenNextCloudflareForDev`。`pnpm@12.5.1` + Node 22 が必要。
+- **詳細**: 環境変数の build-time vs runtime 分離、R2/D1 による ISR 永続化、Hyperdrive、画像最適化の分岐などは [`docs/deploy-cloudflare.md`](docs/deploy-cloudflare.md) を参照。
+- **CI**: `.github/workflows/deploy-cloudflare.yml`（`push` to `main` で自動 `wrangler deploy`。`CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` を Secrets に登録）。

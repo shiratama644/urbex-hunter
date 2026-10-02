@@ -1,0 +1,50 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.5.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync GeoJSON for Workers bundle
+        run: cp data/spots.geojson src/data/spots.json
+
+      - name: Generate Cloudflare types
+        run: pnpm run cf:typegen || true
+
+      - name: Build for Cloudflare
+        run: pnpm run cf:build
+        env:
+          # Build-time inlined vars: set here AND as GitHub Vars/Secrets if used
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # NEXT_PUBLIC_* example:
+          # NEXT_PUBLIC_MAP_STYLE: ${{ vars.NEXT_PUBLIC_MAP_STYLE }}
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+          # wrangler.jsonc の vars はデプロイ時に自動反映。Secrets は事前に `wrangler secret put` かダッシュボードで登録。

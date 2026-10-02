@@ -1,12 +1,20 @@
-import { readFile, stat } from "node:fs/promises";
-import path from "node:path";
 import { and, asc, desc, eq, gte, ilike, inArray, or, type SQL, sql } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { db, isDbConfigured } from "@/db";
 import { type NewSpotRow, type SpotRow, spots } from "@/db/schema";
 import type { SpotCollection, SpotFacets, SpotFeature, SpotProperties } from "@/lib/types";
 
-const GEOJSON_PATH = path.join(process.cwd(), "data", "spots.geojson");
+// CF Workersでは `node:fs`/`process.cwd()` が存在しないため、静的importでバンドルする。
+// `resolveJsonModule: true` により `src/data/spots.json` はビルド時にJSへインライン化される（Turbopackは .json のみ対応）
+// そのため `data/spots.geojson` を `src/data/spots.json` にコピーして import する。
+// ローカル/Nodeでは `fs` から読み（mtimeでキャッシュ）、Workersではフォールバックで埋め込みデータを使う。
+import embeddedGeoJson from "../data/spots.json";
+
+const embeddedFeatures: RawFeature[] =
+  (
+    (embeddedGeoJson as unknown as { features: RawFeature[]; default?: { features: RawFeature[] } })
+      .default ?? (embeddedGeoJson as unknown as { features: RawFeature[] })
+  ).features ?? [];
 
 type RawFeature = {
   geometry: { coordinates: [number, number] };
@@ -18,18 +26,31 @@ export type { RawFeature };
 let seedPromise: Promise<void> | null = null;
 
 // ---------- GeoJSON memoization (mtime + size) ----------
+// Node: fsのmtimeでキャッシュ、Workers: 埋め込みデータをそのまま返す
 let geoJsonCache: { mtimeMs: number; size: number; data: RawFeature[] } | null = null;
 
 async function readGeoJson(): Promise<RawFeature[]> {
-  const s = await stat(GEOJSON_PATH);
-  if (geoJsonCache && geoJsonCache.mtimeMs === s.mtimeMs && geoJsonCache.size === s.size) {
-    return geoJsonCache.data;
+  // Workers/Edge では fs が無いか、ファイルが assets に無い → 即フォールバック
+  try {
+    // dynamic importで `node:fs`/`node:path` を遅延評価 — Workersでトップレベルimportが評価されるのを避ける
+    const [{ readFile, stat }, pathMod] = await Promise.all([
+      import("node:fs/promises"),
+      import("node:path"),
+    ]);
+    const geoPath = pathMod.join(process.cwd(), "data", "spots.geojson");
+    const s = await stat(geoPath);
+    if (geoJsonCache && geoJsonCache.mtimeMs === s.mtimeMs && geoJsonCache.size === s.size) {
+      return geoJsonCache.data;
+    }
+    const raw = await readFile(geoPath, "utf8");
+    const parsed = JSON.parse(raw) as { features: RawFeature[] };
+    const data = parsed.features ?? [];
+    geoJsonCache = { mtimeMs: s.mtimeMs, size: s.size, data };
+    return data;
+  } catch {
+    // CF Workers / 読み込み失敗時は埋め込みデータ（バンドル済み、fs不要）
+    return embeddedFeatures;
   }
-  const raw = await readFile(GEOJSON_PATH, "utf8");
-  const parsed = JSON.parse(raw) as { features: RawFeature[] };
-  const data = parsed.features ?? [];
-  geoJsonCache = { mtimeMs: s.mtimeMs, size: s.size, data };
-  return data;
 }
 
 /** テスト用: キャッシュをクリア */

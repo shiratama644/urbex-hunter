@@ -1,0 +1,53 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "urbex-hunter",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  // Source maps enabled for opennextjs-cloudflare build — set to false to disable
+  // https://opennext.js.org/cloudflare/howtos/sourcemaps
+  "observability": {
+    "enabled": true
+  },
+  // Bind the Worker to itself for `fetch` self-reference (used by OpenNext's cache warmer)
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "urbex-hunter"
+    }
+  ],
+  // Optional: R2 bucket for ISR/incr cache persistence (uncomment after `wrangler r2 bucket create urbex-hunter-cache`)
+  // "r2_buckets": [
+  //   {
+  //     "binding": "NEXT_INC_CACHE_R2_BUCKET",
+  //     "bucket_name": "urbex-hunter-cache"
+  //   }
+  // ],
+  // Optional: D1 for tag cache if you use `revalidateTag()`
+  // "d1_databases": [
+  //   {
+  //     "binding": "NEXT_TAG_CACHE_D1",
+  //     "database_name": "urbex-hunter-tag-cache",
+  //     "database_id": "REPLACE_WITH_D1_ID"
+  //   }
+  // ],
+  // Hyperdrive (Postgres) — if you want DB on Workers instead of GeoJSON fallback.
+  // 1. `wrangler hyperdrive create urbex-hunter-db --connection-string "$DATABASE_URL"`
+  // 2. uncomment below and replace `id`:
+  // "hyperdrive": [
+  //   {
+  //     "binding": "HYPERDRIVE",
+  //     "id": "REPLACE_WITH_HYPERDRIVE_ID"
+  //   }
+  // ],
+  "vars": {
+    // Runtime vars: set via dashboard or `wrangler secret put` / `wrangler deploy --var KEY:val`
+    // NEXT_PUBLIC_* vars are inlined at build time (set before `opennextjs-cloudflare build`)
+    // DATABASE_URL is optional on Workers — absent => GeoJSON fallback (no DB connection needed)
+  }
+}
