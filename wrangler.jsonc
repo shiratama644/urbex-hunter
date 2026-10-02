@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "urbex-hunter",
   "main": ".open-next/worker.js",
-  "compatibility_date": "2025-09-01",
+  "compatibility_date": "2026-10-02",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "directory": ".open-next/assets",
@@ -36,15 +36,20 @@
   //     "database_id": "REPLACE_WITH_D1_ID"
   //   }
   // ],
-  // Hyperdrive (Postgres) — if you want DB on Workers instead of GeoJSON fallback.
-  // 1. `wrangler hyperdrive create urbex-hunter-db --connection-string "$DATABASE_URL"`
-  // 2. uncomment below and replace `id`:
+  // Hyperdrive (Postgres) — Neon推奨: Workers側で接続pooling/キャッシュ [1](https://developers.cloudflare.com/workers/databases/third-party-integrations/neon/)
+  // 1. Neonで `hyperdrive-user` ロールを作成し「非プール」接続文字列を取得（psql, pooling off）[1](https://developers.cloudflare.com/workers/databases/third-party-integrations/neon/)
+  // 2. `wrangler hyperdrive create urbex-hunter-db --connection-string "postgres://hyperdrive-user:PASS@HOST:5432/db"`
+  // 3. 出力の `id` を下記 `id` に貼り付け、`localConnectionString` に同じ非プール文字列を設定（`wrangler dev` 用）[1](https://neon.com/docs/guides/cloudflare-workers)
+  //    `pg@>=8.16.3` が必須 [1](https://developers.cloudflare.com/workers/databases/third-party-integrations/neon/)
   // "hyperdrive": [
   //   {
   //     "binding": "HYPERDRIVE",
-  //     "id": "REPLACE_WITH_HYPERDRIVE_ID"
+  //     "id": "REPLACE_WITH_HYPERDRIVE_ID",
+  //     "localConnectionString": "postgres://hyperdrive-user:PASSWORD@HOST:5432/db"
   //   }
   // ],
+  // // Neonが ap-northeast-1 の場合、Workers配置でレイテンシ削減（任意）
+  // // "placement": { "mode": "smart" },
   "vars": {
     // Runtime vars: set via dashboard or `wrangler secret put` / `wrangler deploy --var KEY:val`
     // NEXT_PUBLIC_* vars are inlined at build time (set before `opennextjs-cloudflare build`)

@@ -1,8 +1,17 @@
 import { and, asc, desc, eq, gte, ilike, inArray, or, type SQL, sql } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
-import { db, isDbConfigured } from "@/db";
+import { db, getConnectionStringAsync, isDbConfigured } from "@/db";
 import { type NewSpotRow, type SpotRow, spots } from "@/db/schema";
 import type { SpotCollection, SpotFacets, SpotFeature, SpotProperties } from "@/lib/types";
+
+// Hyperdrive対応: `isDbConfigured` は import時の DATABASE_URL スナップショットだが、
+// Workers本番では Hyperdrive binding が `getConnectionStringAsync()` で取得できるため、
+// ランタイムでは `hasDbAsync()` で判定する [1](https://opennext.js.org/cloudflare/howtos/db)
+async function hasDbAsync(): Promise<boolean> {
+  if (isDbConfigured) return true;
+  const cs = await getConnectionStringAsync();
+  return !!cs;
+}
 
 // CF Workersでは `node:fs`/`process.cwd()` が存在しないため、静的importでバンドルする。
 // `resolveJsonModule: true` により `src/data/spots.json` はビルド時にJSへインライン化される（Turbopackは .json のみ対応）
@@ -202,7 +211,7 @@ export function scoreNearby(
 // ---------------------------------------------------------------------------
 
 async function tableReady(): Promise<boolean> {
-  if (!isDbConfigured) return false;
+  if (!(await hasDbAsync())) return false;
   try {
     await db.execute(sql`select 1 from ${spots} limit 1`);
     return true;
@@ -212,7 +221,7 @@ async function tableReady(): Promise<boolean> {
 }
 
 async function createTableIfMissing() {
-  if (!isDbConfigured) return;
+  if (!(await hasDbAsync())) return;
   try {
     await db.execute(sql`
     create table if not exists "spots" (
@@ -279,7 +288,7 @@ function toRow(f: RawFeature): NewSpotRow {
 
 /** GeoJSON から DB へ upsert（冪等） */
 export async function importGeoJsonIntoDb(): Promise<number> {
-  if (!isDbConfigured) throw new Error("DATABASE_URL is not configured");
+  if (!(await hasDbAsync())) throw new Error("DATABASE_URL is not configured");
   await createTableIfMissing();
   const features = await readGeoJson();
   const rows = features.map(toRow);
@@ -320,7 +329,7 @@ export async function importGeoJsonIntoDb(): Promise<number> {
 
 /** 初回アクセス時にテーブルが空ならシードする */
 export async function ensureSeeded(): Promise<void> {
-  if (!isDbConfigured) return;
+  if (!(await hasDbAsync())) return;
   if (!seedPromise) {
     seedPromise = (async () => {
       if (!(await tableReady())) {
@@ -429,7 +438,7 @@ function buildConditions(query: SpotQuery): SQL[] {
 }
 
 export async function querySpots(query: SpotQuery): Promise<SpotCollection> {
-  if (!isDbConfigured) {
+  if (!(await hasDbAsync())) {
     return querySpotsFromGeoJson(query);
   }
   await ensureSeeded();
@@ -453,7 +462,7 @@ export async function querySpots(query: SpotQuery): Promise<SpotCollection> {
 }
 
 export async function getSpot(spotcd: number): Promise<SpotFeature | null> {
-  if (!isDbConfigured) {
+  if (!(await hasDbAsync())) {
     return getSpotFromGeoJson(spotcd);
   }
   await ensureSeeded();
@@ -467,7 +476,7 @@ export async function getNearby(
   lng: number,
   limit = 4
 ): Promise<SpotFeature[]> {
-  if (!isDbConfigured) {
+  if (!(await hasDbAsync())) {
     return getNearbyFromGeoJson(spotcd, lat, lng, limit);
   }
   const rows = await db
@@ -483,7 +492,7 @@ export async function getNearby(
 
 // Phase 2 API-1: 4 query (genres/prefs/phenomena/total) は各 groupBy が index で高速、かつ unstable_cache 3600 で DB に当たらない。phenomena の unnest は将来 GIN (spots_phenomena_gin_idx) で改善（drizzle/0002_enable_pg_trgm.sql）
 async function _getFacets(): Promise<SpotFacets> {
-  if (!isDbConfigured) {
+  if (!(await hasDbAsync())) {
     return getFacetsFromGeoJson();
   }
   await ensureSeeded();
