@@ -1,0 +1,16 @@
+# Cloudflare Workers static asset caching — OpenNext serves from `.open-next/assets`
+# https://developers.cloudflare.com/pages/configuration/headers/
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.css
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.woff2
+  Cache-Control: public, max-age=31536000, immutable

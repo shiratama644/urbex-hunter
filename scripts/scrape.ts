@@ -1,0 +1,513 @@
+/**
+ * 全国心霊マップ (https://ghostmap.jp/) スクレイパー
+ * ------------------------------------------------------------
+ * 使い方:
+ *   pnpm exec tsx scripts/scrape.ts                # 全都道府県 / 1県あたり既定件数
+ *   LIMIT_PER_PREF=5 pnpm exec tsx scripts/scrape.ts
+ *   PREFS=13,27 pnpm exec tsx scripts/scrape.ts
+ *
+ * 出力: data/spots.geojson (FeatureCollection)
+ *
+ * 注意: 相手サーバーに負荷を掛けないよう、同時接続数と待機時間を制御しています。
+ */
+
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import * as cheerio from "cheerio";
+
+const BASE = "https://ghostmap.jp";
+const UA = "Mozilla/5.0 (compatible; GhostMapStudyBot/1.0; +https://example.com/bot)";
+
+const PREFECTURES: { code: number; name: string }[] = [
+  { code: 1, name: "北海道" },
+  { code: 2, name: "青森県" },
+  { code: 3, name: "岩手県" },
+  { code: 4, name: "宮城県" },
+  { code: 5, name: "秋田県" },
+  { code: 6, name: "山形県" },
+  { code: 7, name: "福島県" },
+  { code: 8, name: "茨城県" },
+  { code: 9, name: "栃木県" },
+  { code: 10, name: "群馬県" },
+  { code: 11, name: "埼玉県" },
+  { code: 12, name: "千葉県" },
+  { code: 13, name: "東京都" },
+  { code: 14, name: "神奈川県" },
+  { code: 15, name: "新潟県" },
+  { code: 16, name: "富山県" },
+  { code: 17, name: "石川県" },
+  { code: 18, name: "福井県" },
+  { code: 19, name: "山梨県" },
+  { code: 20, name: "長野県" },
+  { code: 21, name: "岐阜県" },
+  { code: 22, name: "静岡県" },
+  { code: 23, name: "愛知県" },
+  { code: 24, name: "三重県" },
+  { code: 25, name: "滋賀県" },
+  { code: 26, name: "京都府" },
+  { code: 27, name: "大阪府" },
+  { code: 28, name: "兵庫県" },
+  { code: 29, name: "奈良県" },
+  { code: 30, name: "和歌山県" },
+  { code: 31, name: "鳥取県" },
+  { code: 32, name: "島根県" },
+  { code: 33, name: "岡山県" },
+  { code: 34, name: "広島県" },
+  { code: 35, name: "山口県" },
+  { code: 36, name: "徳島県" },
+  { code: 37, name: "香川県" },
+  { code: 38, name: "愛媛県" },
+  { code: 39, name: "高知県" },
+  { code: 40, name: "福岡県" },
+  { code: 41, name: "佐賀県" },
+  { code: 42, name: "長崎県" },
+  { code: 43, name: "熊本県" },
+  { code: 44, name: "大分県" },
+  { code: 45, name: "宮崎県" },
+  { code: 46, name: "鹿児島県" },
+  { code: 47, name: "沖縄県" },
+];
+
+export type SpotProps = {
+  spotcd: number;
+  name: string;
+  kana: string | null;
+  address: string | null;
+  prefecture: string | null;
+  city: string | null;
+  genre: string | null;
+  status: string | null;
+  phenomena: string[];
+  features: string[];
+  totalScore: number | null;
+  nationalRank: number | null;
+  prefRank: number | null;
+  fearRating: number | null;
+  ratingCount: number | null;
+  outline: string | null;
+  comment: string | null;
+  imageUrl: string | null;
+  sourceUrl: string;
+  // Phase 3 拡張（後方互換: すべて null 許容）
+  nearestStation: string | null;
+  access: string | null;
+  surroundingFacilities: string[];
+  ghostTypes: Record<string, number> | null;
+  photoCount: number | null;
+  videoCount: number | null;
+  streetViewCount: number | null;
+  experienceCount: number | null;
+  commentCount: number | null;
+  updatedAt: string | null;
+  faq: { q: string; a: string }[] | null;
+};
+
+export type SpotFeature = {
+  type: "Feature";
+  geometry: { type: "Point"; coordinates: [number, number] };
+  properties: SpotProps;
+};
+
+const num = (raw?: string | null): number | null => {
+  if (!raw) return null;
+  // 全角数字を半角に
+  const half = raw.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+  const cleaned = half.replace(/[,，\s]/g, "").match(/-?\d+(\.\d+)?/);
+  return cleaned ? Number(cleaned[0]) : null;
+};
+
+const clean = (raw?: string | null): string | null => {
+  if (!raw) return null;
+  const t = raw
+    .replace(/\u3000/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return t.length ? t : null;
+};
+
+const cleanMultiline = (raw?: string | null): string | null => {
+  if (!raw) return null;
+  const t = raw
+    .replace(/\u3000/g, " ")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => line.length > 0)
+    .join("\n")
+    .trim();
+  return t.length ? t : null;
+};
+
+async function fetchHtml(url: string, retries = 3): Promise<string | null> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await fetch(url, {
+        headers: { "User-Agent": UA, "Accept-Language": "ja" },
+        signal: AbortSignal.timeout(25_000),
+      });
+      if (!res.ok) {
+        if (res.status === 429) {
+          const ra = Number(res.headers.get("Retry-After") ?? "2");
+          const wait = Number.isFinite(ra) ? ra * 1000 : 2000;
+          console.warn(`  ! 429 ${url} — Retry-After ${wait}ms`);
+          await new Promise((r) => setTimeout(r, wait));
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return await res.text();
+    } catch (err) {
+      if (i === retries) {
+        console.warn(`  ! failed ${url}: ${(err as Error).message}`);
+        return null;
+      }
+      const jitter = Math.random() * 400;
+      await new Promise((r) => setTimeout(r, 800 * (i + 1) + jitter));
+    }
+  }
+  return null;
+}
+
+/** 都道府県一覧ページから spotcd を抽出（ページネーション対応） */
+export async function listSpotIds(precd: number): Promise<number[]> {
+  const all = new Set<number>();
+  for (let p = 1; p <= 30; p++) {
+    const url =
+      p === 1
+        ? `${BASE}/spotlist.php?precd=${precd}`
+        : `${BASE}/spotlist.php?precd=${precd}&p=${p}`;
+    const html = await fetchHtml(url);
+    if (!html) break;
+    const ids = [...html.matchAll(/spotdetail\.php\?spotcd=(\d+)/g)].map((m) => Number(m[1]));
+    if (ids.length === 0) break;
+    for (const id of ids) all.add(id);
+    // 1ページ16件想定、未満なら最終ページ
+    if (ids.length < 16) break;
+  }
+  return [...all];
+}
+
+/** 詳細ページ HTML をパース */
+export function parseSpot(html: string, spotcd: number): SpotFeature | null {
+  const $ = cheerio.load(html);
+
+  const name = clean($("#sub_title_h1 p").first().text());
+  if (!name) return null;
+
+  // 緯度経度: 3パターンで抽出（事実ベースの堅牢化）
+  let lat: number | null = null;
+  let lng: number | null = null;
+  const gmap = html.match(/maps\?q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (gmap) {
+    lat = Number(gmap[1]);
+    lng = Number(gmap[2]);
+  } else {
+    const jsonLat = html.match(/"latitude"\s*:\s*"?(-?\d+\.\d+)/);
+    const jsonLng = html.match(/"longitude"\s*:\s*"?(-?\d+\.\d+)/);
+    if (jsonLat && jsonLng) {
+      lat = Number(jsonLat[1]);
+      lng = Number(jsonLng[1]);
+    } else {
+      // 3パターン目: data-lat / data-lng 属性（将来の HTML 構造変更対応）
+      const dataLat = html.match(/data-lat=["'](-?\d+\.\d+)["']/);
+      const dataLng = html.match(/data-lng=["'](-?\d+\.\d+)["']/);
+      if (dataLat && dataLng) {
+        lat = Number(dataLat[1]);
+        lng = Number(dataLng[1]);
+      }
+    }
+  }
+  if (lat === null || lng === null || Number.isNaN(lat) || Number.isNaN(lng)) {
+    return null;
+  }
+
+  // 概要テーブル (th ラベル -> td) — th は前方一致で取得（EM1-C）
+  // Phase 3: outline + 地図テーブルの両方を統合（最寄り駅/アクセス/周辺施設は地図側にある）
+  const table: Record<string, string> = {};
+  const collectRows = (sel: string) => {
+    $(sel).each((_, tr) => {
+      const th = clean($(tr).find("th").first().text());
+      const tdEl = $(tr).find("td").first();
+      if (!th || !tdEl.length) return;
+      tdEl.find("a,input,img,script").remove();
+      tdEl.find("br").replaceWith("\n");
+      const td = cleanMultiline(tdEl.text());
+      if (td && !table[th]) table[th] = td;
+    });
+  };
+  collectRows("table.table_outline tr");
+  collectRows("#chapter_map table tr");
+  collectRows("table tr");
+  const tableGet = (prefix: string): string | null => {
+    const entry = Object.entries(table).find(([k]) => k.startsWith(prefix));
+    return entry ? entry[1] : null;
+  };
+
+  // 住所（Googleマップを開く等のリンク文言は除去済み）
+  const addrEl = $("#table_outline_map").clone();
+  addrEl.find("a,br,img,input").remove();
+  const address = clean(addrEl.text()) ?? tableGet("住所") ?? null;
+
+  // パンくずから都道府県 / 市区町村
+  const crumbs = $(".pankz_list_item a")
+    .map((_, a) => clean($(a).text()) ?? "")
+    .get()
+    .filter(Boolean);
+  const prefecture =
+    PREFECTURES.map((p) => p.name).find((p) => crumbs.includes(p)) ??
+    (address ? (address.match(/(東京都|北海道|(?:京都|大阪)府|..県)/)?.[1] ?? null) : null);
+  const city = crumbs.find((c) => /[市区町村郡]$/.test(c) && c !== prefecture) ?? null;
+
+  // タグ群（特徴・心霊現象）
+  const tagGroups: Record<string, string[]> = {};
+  $("#tag_area dt").each((_, dt) => {
+    const label = (clean($(dt).text()) ?? "").replace(/[:：]$/, "");
+    const items = $(dt)
+      .next("dd")
+      .find("li a")
+      .map((_i, a) => clean($(a).text()) ?? "")
+      .get()
+      .filter(Boolean);
+    tagGroups[label] = items;
+  });
+
+  const headValue = (label: string): number | null => {
+    let out: number | null = null;
+    $("#head_point .head_point_item").each((_, li) => {
+      const title = clean($(li).find(".head_point_item_title").text());
+      if (title === label) {
+        out = num($(li).find(".head_point_item_detail_value").text());
+      }
+    });
+    return out;
+  };
+
+  const genre =
+    (tagGroups["ジャンル"] ?? []).find((g) => !/地方|[都道府県]の/.test(g)) ??
+    tableGet("ジャンル") ??
+    null;
+
+  // ---------- Phase 3 拡張フィールド ----------
+  const nearestStation = tableGet("最寄り駅") ?? null;
+  const access = tableGet("アクセス") ?? null;
+  const facilitiesRaw = tableGet("周辺施設") ?? null;
+  const surroundingFacilities = facilitiesRaw
+    ? facilitiesRaw
+        .split(/[、,\n]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .flatMap((s) =>
+          s
+            .split(/\s{2,}/)
+            .map((x) => x.trim())
+            .filter(Boolean)
+        )
+    : [];
+
+  // 投稿情報: 写真1枚、動画0件、ストリートビュー0件、体験談0話、コメント0件
+  const postInfo = tableGet("投稿情報") ?? "";
+  const extractCount = (re: RegExp): number | null => {
+    const m = postInfo.match(re);
+    return m ? num(m[1]) : null;
+  };
+  const photoCount = extractCount(/写真\s*([0-9０-９]+)\s*枚/);
+  const videoCount = extractCount(/動画\s*([0-9０-９]+)\s*件/);
+  const streetViewCount = extractCount(/ストリートビュー\s*([0-9０-９]+)\s*件/);
+  const experienceCount = extractCount(/体験談\s*([0-9０-９]+)\s*話/);
+  const commentCount = extractCount(/コメント\s*([0-9０-９]+)\s*件/);
+
+  // 幽霊タイプ別投票: 少年0 少女0 ... 正体不明1 — HTML 全体から正規表現で抽出
+  const ghostTypes: Record<string, number> | null = (() => {
+    const types = ["少年", "少女", "男性", "女性", "老爺", "老婆", "動物", "正体不明"];
+    const found: Record<string, number> = {};
+    let has = false;
+    for (const tp of types) {
+      const re = new RegExp(`${tp}\\s*(\\d+)`);
+      const m = html.match(re);
+      if (m) {
+        found[tp] = Number(m[1]);
+        has = true;
+      }
+    }
+    return has ? found : null;
+  })();
+
+  // 更新日: 更新日:2026/09/22
+  const updatedAtRaw = html.match(/更新日\s*[:：]\s*(\d{4}[/-]\d{1,2}[/-]\d{1,2})/)?.[1] ?? null;
+  const updatedAt = updatedAtRaw ? updatedAtRaw.replace(/\//g, "-") : null;
+
+  // FAQ: よくある質問セクション
+  const faq: { q: string; a: string }[] | null = (() => {
+    const list: { q: string; a: string }[] = [];
+    // #chapter_faq / .faq 内の dt/dd を優先
+    $("#chapter_faq dt, .faq dt, #chapter_faq h3, #chapter_faq h4").each((_, el) => {
+      const q = clean($(el).text());
+      if (!q) return;
+      // dt の次が dd、h3/h4 の次が p/div
+      let aEl = $(el).next("dd, p, div");
+      if (!aEl.length) aEl = $(el).parent().next();
+      const a = clean(aEl.text());
+      if (q && a && q.length < 80 && a.length > 10) {
+        // FAQ らしいもののみ（質問は短く回答は長い）
+        if (/[？?]$/.test(q) || q.includes("なぜ") || q.includes("どう")) {
+          list.push({ q, a });
+        }
+      }
+    });
+    // フォールバック: よくある質問見出し直後の dl を直接パース
+    if (list.length === 0) {
+      const faqRoot = $("h2:contains('よくある質問'), h3:contains('よくある質問')")
+        .first()
+        .parent();
+      faqRoot.find("dl dt").each((_, dt) => {
+        const q = clean($(dt).text());
+        const a = clean($(dt).next("dd").text());
+        if (q && a) list.push({ q, a });
+      });
+    }
+    return list.length ? list.slice(0, 8) : null;
+  })();
+
+  // 画像: outline_image → og:image fallback → https 強制
+  let imageUrl: string | null = null;
+  const image = $("#outline_image img").attr("src");
+  if (image) {
+    imageUrl = new URL(image.replace(/^\.\.\//, "/"), BASE).toString();
+  } else {
+    const og = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/);
+    if (og) {
+      const ogUrl = og[1];
+      try {
+        imageUrl = new URL(ogUrl, BASE).toString();
+      } catch {
+        imageUrl = ogUrl;
+      }
+    }
+  }
+  if (imageUrl) imageUrl = imageUrl.replace(/^http:/, "https:");
+
+  const properties: SpotProps = {
+    spotcd,
+    name,
+    kana: tableGet("読み方") ?? null,
+    address,
+    prefecture,
+    city,
+    genre,
+    status: tableGet("状態") ?? null,
+    phenomena: tagGroups["心霊現象"] ?? [],
+    features: (tagGroups["特徴"] ?? []).filter((f) => !/地方/.test(f)),
+    totalScore: headValue("総合得点"),
+    nationalRank: headValue("全国ランク"),
+    prefRank: headValue("県別ランク"),
+    fearRating: num($("#eval_point").first().text()),
+    ratingCount: num($("#eval_row").first().text()) ?? headValue("評価人数"),
+    outline: cleanMultiline($("#outline_spot").text()),
+    comment: tableGet("コメント") ?? null,
+    imageUrl,
+    sourceUrl: `${BASE}/spotdetail.php?spotcd=${spotcd}`,
+    nearestStation,
+    access,
+    surroundingFacilities,
+    ghostTypes,
+    photoCount,
+    videoCount,
+    streetViewCount,
+    experienceCount,
+    commentCount,
+    updatedAt,
+    faq,
+  };
+
+  return {
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [lng, lat] },
+    properties,
+  };
+}
+
+export async function scrapeSpot(spotcd: number): Promise<SpotFeature | null> {
+  const html = await fetchHtml(`${BASE}/spotdetail.php?spotcd=${spotcd}`);
+  if (!html) return null;
+  try {
+    return parseSpot(html, spotcd);
+  } catch (err) {
+    console.warn(`  ! parse error ${spotcd}: ${(err as Error).message}`);
+    return null;
+  }
+}
+
+async function pool<T, R>(items: T[], size: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  const queue = items.map((item, idx) => ({ item, idx }));
+  const out: R[] = new Array(items.length) as R[];
+  const runners = Array.from({ length: Math.min(size, queue.length) }, async () => {
+    while (queue.length) {
+      const cur = queue.shift();
+      if (!cur) break;
+      out[cur.idx] = await worker(cur.item);
+    }
+  });
+  await Promise.all(runners);
+  return out;
+}
+
+async function main() {
+  const limitPerPref = Number(process.env.LIMIT_PER_PREF ?? 16);
+  const concurrency = Number(process.env.CONCURRENCY ?? 6);
+  const only = process.env.PREFS?.split(",").map(Number).filter(Boolean);
+  const targets = only ? PREFECTURES.filter((p) => only.includes(p.code)) : PREFECTURES;
+
+  const outPath = path.join(process.cwd(), "data", "spots.geojson");
+  const existing = new Map<number, SpotFeature>();
+  try {
+    const prev = JSON.parse(await readFile(outPath, "utf8")) as {
+      features: SpotFeature[];
+    };
+    for (const f of prev.features) existing.set(f.properties.spotcd, f);
+    console.log(`既存データ ${existing.size} 件を読み込みました`);
+  } catch {
+    /* 初回実行 */
+  }
+
+  for (const pref of targets) {
+    const ids = (await listSpotIds(pref.code)).slice(0, limitPerPref);
+    console.log(`[${pref.name}] ${ids.length} 件を取得中...`);
+    const results = await pool(ids, concurrency, scrapeSpot);
+    let ok = 0;
+    for (const f of results) {
+      if (f) {
+        existing.set(f.properties.spotcd, f);
+        ok++;
+      }
+    }
+    console.log(`[${pref.name}] ${ok} 件 取得成功 (累計 ${existing.size})`);
+  }
+
+  const features = [...existing.values()].sort(
+    (a, b) => (b.properties.totalScore ?? 0) - (a.properties.totalScore ?? 0)
+  );
+
+  await mkdir(path.dirname(outPath), { recursive: true });
+  await writeFile(
+    outPath,
+    JSON.stringify(
+      {
+        type: "FeatureCollection",
+        count: features.length,
+        generatedAt: new Date().toISOString(),
+        source: BASE,
+        features,
+      },
+      null,
+      1
+    ),
+    "utf8"
+  );
+  console.log(`✅ ${features.length} 件を ${outPath} に書き出しました`);
+}
+
+if (process.argv[1] && process.argv[1].includes("scrape")) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}

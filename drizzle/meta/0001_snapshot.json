@@ -1,0 +1,275 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "98f8bb2b-6a2a-4321-8802-cffbdff84f95",
+  "prevId": "fbbe889f-56c4-45e3-a61d-e97121582b30",
+  "tables": {
+    "spot_phenomena": {
+      "name": "spot_phenomena",
+      "columns": {
+        "spotcd": {
+          "name": "spotcd",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "phenomenon": {
+          "name": "phenomenon",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "spot_phenomena_phenomenon_idx": {
+          "name": "spot_phenomena_phenomenon_idx",
+          "columns": ["phenomenon"],
+          "isUnique": false
+        },
+        "spot_phenomena_spotcd_idx": {
+          "name": "spot_phenomena_spotcd_idx",
+          "columns": ["spotcd"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "spot_phenomena_spotcd_spots_spotcd_fk": {
+          "name": "spot_phenomena_spotcd_spots_spotcd_fk",
+          "tableFrom": "spot_phenomena",
+          "tableTo": "spots",
+          "columnsFrom": ["spotcd"],
+          "columnsTo": ["spotcd"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "spot_phenomena_spotcd_phenomenon_pk": {
+          "columns": ["spotcd", "phenomenon"],
+          "name": "spot_phenomena_spotcd_phenomenon_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "spots": {
+      "name": "spots",
+      "columns": {
+        "spotcd": {
+          "name": "spotcd",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kana": {
+          "name": "kana",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "prefecture": {
+          "name": "prefecture",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "city": {
+          "name": "city",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "lat": {
+          "name": "lat",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "lng": {
+          "name": "lng",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "genre": {
+          "name": "genre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "phenomena": {
+          "name": "phenomena",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "features": {
+          "name": "features",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "total_score": {
+          "name": "total_score",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "national_rank": {
+          "name": "national_rank",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pref_rank": {
+          "name": "pref_rank",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "fear_rating": {
+          "name": "fear_rating",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rating_count": {
+          "name": "rating_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "outline": {
+          "name": "outline",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "comment": {
+          "name": "comment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "image_url": {
+          "name": "image_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "spots_pref_idx": {
+          "name": "spots_pref_idx",
+          "columns": ["prefecture"],
+          "isUnique": false
+        },
+        "spots_genre_idx": {
+          "name": "spots_genre_idx",
+          "columns": ["genre"],
+          "isUnique": false
+        },
+        "spots_pref_genre_idx": {
+          "name": "spots_pref_genre_idx",
+          "columns": ["prefecture", "genre"],
+          "isUnique": false
+        },
+        "spots_bbox_idx": {
+          "name": "spots_bbox_idx",
+          "columns": ["lat", "lng"],
+          "isUnique": false
+        },
+        "spots_bbox_covering_idx": {
+          "name": "spots_bbox_covering_idx",
+          "columns": ["lat", "lng", "total_score", "spotcd"],
+          "isUnique": false
+        },
+        "spots_total_score_idx": {
+          "name": "spots_total_score_idx",
+          "columns": ["total_score", "spotcd"],
+          "isUnique": false
+        },
+        "spots_fear_rating_idx": {
+          "name": "spots_fear_rating_idx",
+          "columns": ["fear_rating"],
+          "isUnique": false
+        },
+        "spots_genre_rating_idx": {
+          "name": "spots_genre_rating_idx",
+          "columns": ["genre", "fear_rating"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

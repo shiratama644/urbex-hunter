@@ -1,0 +1,47 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "urbex-hunter",
+  "compatibility_date": "2026-10-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "observability": {
+    "enabled": true
+  },
+  // D1 (SQLite) — Cloudflare Workers ネイティブ（本番は D1、未設定時は GeoJSON フォールバック）
+  // 1. `pnpm exec wrangler d1 create urbex-hunter-db`
+  // 2. 出力の `database_id` を下記 `database_id` に貼り付け
+  // 3. `pnpm exec wrangler d1 execute urbex-hunter-db --file=./drizzle/0001_init.sql`
+  //    または `pnpm run db:migrate`（drizzle-kit）
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "urbex-hunter-db",
+      "database_id": "REPLACE_WITH_D1_ID",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  // KV (任意) — facets の 3-layer cache で D1 reads を 87%削減 [1]
+  // Free tier: KV reads 100k/day, writes 1k/day [2] — facets は 24 writes/day で収まる
+  // 1. `pnpm exec wrangler kv namespace create urbex-kv`
+  // 2. 出力の `id` を下記 `id` に貼り付け、コメントを外す
+  // [1] https://zenn.dev/jphfa/articles/cloudflare-d1-three-tier-cache?locale=en
+  // [2] https://developers.cloudflare.com/workers/platform/pricing/
+  // "kv_namespaces": [
+  //   {
+  //     "binding": "KV",
+  //     "id": "REPLACE_WITH_KV_ID"
+  //   }
+  // ],
+  "images": {
+    "binding": "IMAGES"
+  },
+  "vars": {
+    // Runtime vars: set via dashboard or `wrangler secret put` / `wrangler deploy --var KEY:val`
+    // NEXT_PUBLIC_* vars are inlined at build time (set before `vite build`)
+    // D1 未設定時は GeoJSON フォールバック（752件）で完全動作
+  }
+}

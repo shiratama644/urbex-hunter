@@ -1,0 +1,92 @@
+name: Weekly Ghost Spot Scrape
+
+on:
+  schedule:
+    # 毎週月曜 03:15 JST (= 日曜 18:15 UTC)
+    - cron: "15 18 * * 0"
+  workflow_dispatch:
+    inputs:
+      limit_per_pref:
+        description: "1都道府県あたりの取得件数"
+        required: false
+        default: "16"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scrape-weekly
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.5.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Scrape 全国心霊マップ
+        env:
+          LIMIT_PER_PREF: ${{ github.event.inputs.limit_per_pref || '16' }}
+          CONCURRENCY: "6"
+        run: pnpm exec tsx scripts/scrape.ts
+
+      - name: Show diff stats
+        run: |
+          echo "## Scrape summary — $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_STEP_SUMMARY"
+          COUNT=$(node -e "const j=require('./data/spots.geojson');console.log(j.count ?? j.features.length)")
+          GEN=$(node -e "const j=require('./data/spots.geojson');console.log(j.generatedAt ?? 'n/a')")
+          echo "- count: $COUNT" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "- generatedAt: $GEN" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "- source: $(node -e "const j=require('./data/spots.geojson');console.log(j.source ?? 'n/a')")" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### git diff --numstat" >> "$GITHUB_STEP_SUMMARY"
+          git diff --numstat | tee -a "$GITHUB_STEP_SUMMARY" || true
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### git diff --stat" >> "$GITHUB_STEP_SUMMARY"
+          git diff --stat | tee -a "$GITHUB_STEP_SUMMARY" || true
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### git log (last 5)" >> "$GITHUB_STEP_SUMMARY"
+          git log --oneline -5 | tee -a "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Commit updated dataset
+        run: |
+          COUNT=$(node -e "const j=require('./data/spots.geojson');console.log(j.count ?? j.features.length)")
+          GEN=$(node -e "const j=require('./data/spots.geojson');console.log(j.generatedAt ?? 'n/a')")
+          if [[ -n "$(git status --porcelain data/spots.geojson)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add data/spots.geojson
+            git commit -m "chore(data): weekly refresh — ${COUNT} spots (generatedAt ${GEN})"
+            git push
+            echo "committed ${COUNT} spots" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No dataset changes — ${COUNT} spots (generatedAt ${GEN})" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # 本番 DB へ反映（DATABASE_URL secret が設定されている場合のみ）
+      - name: Sync dataset into database
+        if: ${{ secrets.DATABASE_URL != '' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          echo "::notice::DATABASE_URL secret found — syncing dataset"
+          pnpm exec tsx scripts/seed.ts
+
+      - name: Skip DB sync notice
+        if: ${{ secrets.DATABASE_URL == '' }}
+        run: echo "::notice::DATABASE_URL secret not set — skipping DB sync (GeoJSON-only mode)"

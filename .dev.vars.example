@@ -1,0 +1,15 @@
+# Cloudflare Workers local dev vars — consumed by `wrangler dev` / `opennextjs-cloudflare preview`
+# Copy to `.dev.vars` and fill:
+#   cp .dev.vars.example .dev.vars
+# Then also `cp .dev.vars .env.local` if you want `next dev` to see the same values.
+
+# Optional: Postgres. Leave empty to use GeoJSON fallback (752件, no DB needed).
+# For Workers, prefer Hyperdrive (see wrangler.jsonc) or a public Neon/Supabase URL.
+# On Workers, `DATABASE_URL` is read via `process.env` (OpenNext maps `env` → `process.env`).
+DATABASE_URL="postgresql://user:password@host:5432/db?sslmode=require"
+
+# Example: Hyperdrive connection string is bound as `HYPERDRIVE`, not `DATABASE_URL`.
+# When using Hyperdrive, set `DATABASE_URL` empty and configure `wrangler.jsonc` hyperdrive `id`.
+
+# Cloudflare bindings (auto-populated by `wrangler types`)
+# NEXT_INC_CACHE_R2_BUCKET="urbex-hunter-cache"
