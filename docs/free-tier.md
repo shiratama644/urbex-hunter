@@ -17,6 +17,23 @@
 
 本プロジェクト: `dev.db` 1.4MB (752 spots + 1094 phenomena + 11 indexes + FTS5) → 5GB の 0.03%。
 
+### ローカル開発: SQLite 任意 (proot-distro 対応)
+
+本番は `wrangler.jsonc` の `d1_databases` binding `env.DB` (D1) を使用。ローカルでは **PostgreSQL 不要** — `src/db/index.ts` が透過的にフォールバックする:
+
+1. **D1 優先** — `cloudflare:workers` の `env.DB` があれば D1 (`drizzle-orm/d1`)
+2. **ローカルSQLite 任意** — `DATABASE_URL=file:./dev.db` / `SQLITE_URL` / `SQLITE_PATH` が `file:` なら `libsql` (`@libsql/client` + `drizzle-orm/libsql`) で接続。`NODE_ENV !== production` かつ `dev.db` が存在すれば **ゼロ設定で自動** 使用 (proot-distro 利便性)
+3. **GeoJSON フォールバック** — 上記いずれも無ければ `src/data/spots.json` (752件) をメモリでフィルタ
+
+```bash
+# proot-distro Ubuntu — PostgreSQL ビルド不要 (libsql は WASM, better-sqlite3 不要)
+pnpm run seed                    # data/spots.geojson → dev.db 1.4MB を作成 (PRAGMA WAL/NORMAL/cache 64MB/mmap 256MB)
+DATABASE_URL=file:./dev.db pnpm dev   # 明示的に SQLite を使用
+pnpm dev                         # dev.db があれば自動で SQLite、無ければ GeoJSON フォールバック
+```
+
+`pnpm-workspace.yaml` の `allowBuilds` は `better-sqlite3: false` (libsql のみで `node-gyp` 不要)、`pnpm list` で `better-sqlite3` は無視される。`free-tier:check` / `bench` は `file:./dev.db` を直接参照するため、CI で DB なしでも `pnpm test` は GeoJSON 経由で 37 passed。
+
 [1] https://developers.cloudflare.com/d1/platform/pricing/  
 [2] https://omidsaffari.com/blog/cloudflare-d1-free-limits-queries-stop  
 [3] https://developers.cloudflare.com/workers/platform/pricing/  

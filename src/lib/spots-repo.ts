@@ -641,7 +641,7 @@ export async function querySpots(query: SpotQuery): Promise<SpotCollection> {
   // FTS5 で spotcd を事前絞り込み (q のみ)
   let ftsSpotcds: number[] | null = null;
   if (hasQ) {
-    const rawQ = query.q!.trim();
+    const rawQ = (query.q as string).trim();
     const ftsQuery = escapeFts5(rawQ);
     // 3 文字未満は FTS5 trigram が非効率 → LIKE にフォールバック
     if (ftsQuery.length >= 2) {
@@ -676,7 +676,8 @@ export async function querySpots(query: SpotQuery): Promise<SpotCollection> {
     }
     // FTS 未使用 or 失敗時は LIKE にフォールバック (buildConditions に後で追加)
     if (ftsSpotcds === null && hasQ) {
-      const pattern = `%${query.q!}%`;
+      const qVal = query.q as string;
+      const pattern = `%${qVal}%`;
       const orCond = or(
         like(spots.name, pattern),
         like(spots.kana, pattern),
@@ -697,7 +698,8 @@ export async function querySpots(query: SpotQuery): Promise<SpotCollection> {
   // phenomenon junction: EXISTS で index 利用 (子テーブルで 1-2 rows のみ read, 課金最小)
   let phenomenonExists: SQL | undefined;
   if (hasPhenomenon) {
-    phenomenonExists = sql`exists (select 1 from "spot_phenomena" where "spot_phenomena"."spotcd" = ${spots.spotcd} and "spot_phenomena"."phenomenon" = ${query.phenomenon!})`;
+    const phenVal = query.phenomenon as string;
+    phenomenonExists = sql`exists (select 1 from "spot_phenomena" where "spot_phenomena"."spotcd" = ${spots.spotcd} and "spot_phenomena"."phenomenon" = ${phenVal})`;
   }
 
   const whereClause =
